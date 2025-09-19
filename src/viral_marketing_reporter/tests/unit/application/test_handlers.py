@@ -1,46 +1,64 @@
+import asyncio
 import uuid
 from typing import override
 
+import pytest
+
 from viral_marketing_reporter.application.commands import StartSearchCommand, TaskDTO
 from viral_marketing_reporter.application.handlers import SearchCommandHandler
-from viral_marketing_reporter.domain.model import JobStatus, Platform, SearchJob, TaskStatus
+from viral_marketing_reporter.domain.model import (
+    JobStatus,
+    Keyword,
+    Platform,
+    Post,
+    SearchJob,
+    SearchResult,
+    TaskStatus,
+)
+from viral_marketing_reporter.domain.repositories import SearchJobRepository
+from viral_marketing_reporter.infrastructure.platforms.base import SearchPlatformService
 from viral_marketing_reporter.infrastructure.platforms.factory import (
     PlatformServiceFactory,
 )
-from viral_marketing_reporter.infrastructure.platforms.naver_blog_service import (
-    PlaywrightNaverBlogService,
-)
 
 
-class InMemorySearchJobRepository:
-    """Protocol을 만족하는 가짜 리포지토리 구현체"""
-
+class InMemorySearchJobRepository(SearchJobRepository):
     def __init__(self) -> None:
         self._jobs: list[SearchJob] = []
 
     @override
-    def save(self, search_job: SearchJob) -> None:
+    async def save(self, search_job: SearchJob) -> None:
         self._jobs.append(search_job)
 
     @override
-    def get(self, search_job_id: uuid.UUID) -> SearchJob | None:
+    async def get(self, search_job_id: uuid.UUID) -> SearchJob | None:
         return next((job for job in self._jobs if job.job_id == search_job_id), None)
 
     def list(self) -> list[SearchJob]:
-        """테스트 검증을 위해 저장된 모든 job을 반환하는 공개 메서드"""
         return self._jobs
 
 
-def test_handler_executes_search_job_via_factory():
-    """
-    핸들러는 팩토리를 통해 적절한 서비스를 받아 태스크를 실행해야 한다.
-    """
+class FakeSearchPlatformService(SearchPlatformService):
+    """실제 네트워크 요청을 하지 않는 가짜 서비스"""
+
+    @override
+    async def search_and_find_posts(
+        self, keyword: Keyword, posts_to_find: list[Post]
+    ) -> SearchResult:
+        await asyncio.sleep(0.01)  # 비동기 작업 흉내
+        # 테스트의 목적에 맞게 특정 포스트를 찾았다고 가정
+        if keyword.text == "강남 맛집":
+            return SearchResult(found_posts=[posts_to_find[0]], screenshot=None)
+        return SearchResult(found_posts=[], screenshot=None)
+
+
+@pytest.mark.asyncio
+async def test_handler_executes_tasks_concurrently():
+    """핸들러는 여러 태스크를 동시에 실행하고 결과를 종합해야 한다."""
     # 1. 준비 (Arrange)
     fake_repository = InMemorySearchJobRepository()
-
-    # 실제 팩토리를 사용하되, 실제 서비스를 등록
     factory = PlatformServiceFactory()
-    factory.register_service(Platform.NAVER_BLOG, PlaywrightNaverBlogService())
+    factory.register_service(Platform.NAVER_BLOG, FakeSearchPlatformService())
 
     handler = SearchCommandHandler(repository=fake_repository, factory=factory)
     command = StartSearchCommand(
@@ -50,19 +68,27 @@ def test_handler_executes_search_job_via_factory():
                 urls=["https://blog.naver.com/post1"],
                 platform=Platform.NAVER_BLOG,
             ),
+            TaskDTO(
+                keyword="제주도 여행",
+                urls=["https://blog.naver.com/post2"],
+                platform=Platform.NAVER_BLOG,
+            ),
         ]
     )
 
     # 2. 실행 (Act)
-    handler.handle(command)
+    await handler.handle(command)
 
     # 3. 검증 (Assert)
     saved_jobs = fake_repository.list()
     assert len(saved_jobs) == 1
-
     saved_job = saved_jobs[0]
-    # 핸들러가 search_job.start()와 search_job.update_task_result()를 호출했으므로
-    # 최종 상태는 COMPLETED 여야 함
+
     assert saved_job.status == JobStatus.COMPLETED
-    assert len(saved_job.tasks) == 1
-    assert saved_job.tasks[0].status == TaskStatus.NOT_FOUND
+    assert len(saved_job.tasks) == 2
+
+    # 각 태스크의 결과 확인
+    task1 = next(t for t in saved_job.tasks if t.keyword.text == "강남 맛집")
+    task2 = next(t for t in saved_job.tasks if t.keyword.text == "제주도 여행")
+    assert task1.status == TaskStatus.FOUND
+    assert task2.status == TaskStatus.NOT_FOUND

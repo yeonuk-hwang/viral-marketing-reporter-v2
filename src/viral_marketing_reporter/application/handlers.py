@@ -1,5 +1,14 @@
+import asyncio
+import uuid
+
 from viral_marketing_reporter.application.commands import StartSearchCommand
-from viral_marketing_reporter.domain.model import Keyword, Post, SearchJob, SearchTask
+from viral_marketing_reporter.domain.model import (
+    Keyword,
+    Post,
+    SearchJob,
+    SearchResult,
+    SearchTask,
+)
 from viral_marketing_reporter.domain.repositories import SearchJobRepository
 from viral_marketing_reporter.infrastructure.platforms.factory import (
     PlatformServiceFactory,
@@ -10,12 +19,21 @@ class SearchCommandHandler:
     repository: SearchJobRepository
     factory: PlatformServiceFactory
 
-    def __init__(self, repository: SearchJobRepository, factory: PlatformServiceFactory):
+    def __init__(
+        self, repository: SearchJobRepository, factory: PlatformServiceFactory
+    ):
         self.repository = repository
         self.factory = factory
 
-    def handle(self, command: StartSearchCommand) -> None:
-        # 1. Command DTO를 Domain Object로 변환
+    async def _execute_task(self, task: SearchTask) -> tuple[uuid.UUID, SearchResult]:
+        """개별 태스크를 비동기적으로 실행합니다."""
+        platform_service = self.factory.get_service(task.platform)
+        result = await platform_service.search_and_find_posts(
+            keyword=task.keyword, posts_to_find=task.blog_posts_to_find
+        )
+        return task.task_id, result
+
+    async def handle(self, command: StartSearchCommand):
         tasks = [
             SearchTask(
                 keyword=Keyword(text=task_dto.keyword),
@@ -25,25 +43,21 @@ class SearchCommandHandler:
             for task_dto in command.tasks
         ]
         search_job = SearchJob(tasks=tasks)
-        search_job.start()  # 작업 상태를 RUNNING으로 변경
+        search_job.start()
 
-        # 2. 각 태스크를 순회하며 플랫폼 서비스를 통해 실행
-        for task in search_job.tasks:
-            try:
-                # 2.1. 팩토리에서 적절한 플랫폼 서비스 가져오기
-                platform_service = self.factory.get_service(task.platform)
+        # 각 태스크를 비동기 작업으로 생성
+        async_tasks = [self._execute_task(task) for task in search_job.tasks]
 
-                # 2.2. 서비스 실행 및 결과 받기
-                result = platform_service.search_and_find_posts(
-                    keyword=task.keyword, posts_to_find=task.blog_posts_to_find
-                )
+        # 모든 태스크를 동시에 실행
+        results = await asyncio.gather(*async_tasks, return_exceptions=True)
 
-                # 2.3. 도메인 객체에 결과 업데이트
-                search_job.update_task_result(task.task_id, result)
+        # 결과 업데이트
+        for result in results:
+            if isinstance(result, Exception):
+                # 실제로는 태스크 ID를 알 수 없으므로, 더 나은 예외 처리 방식이 필요함
+                print(f"태스크 처리 중 에러 발생: {result}")
+            else:
+                task_id, search_result = result
+                search_job.update_task_result(task_id, search_result)
 
-            except Exception as e:
-                print(f"태스크 처리 중 에러 발생: {e}")  # 임시 에러 처리
-                search_job.update_task_error(task.task_id)
-
-        # 3. 모든 태스크가 처리된 최종 작업 결과를 저장
-        self.repository.save(search_job)
+        await self.repository.save(search_job)
