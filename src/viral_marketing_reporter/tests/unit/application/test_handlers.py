@@ -1,8 +1,15 @@
 import uuid
+from typing import override
 
 from viral_marketing_reporter.application.commands import StartSearchCommand, TaskDTO
 from viral_marketing_reporter.application.handlers import SearchCommandHandler
-from viral_marketing_reporter.domain.model import Platform, SearchJob
+from viral_marketing_reporter.domain.model import JobStatus, Platform, SearchJob, TaskStatus
+from viral_marketing_reporter.infrastructure.platforms.factory import (
+    PlatformServiceFactory,
+)
+from viral_marketing_reporter.infrastructure.platforms.naver_blog_service import (
+    PlaywrightNaverBlogService,
+)
 
 
 class InMemorySearchJobRepository:
@@ -11,9 +18,11 @@ class InMemorySearchJobRepository:
     def __init__(self) -> None:
         self._jobs: list[SearchJob] = []
 
+    @override
     def save(self, search_job: SearchJob) -> None:
         self._jobs.append(search_job)
 
+    @override
     def get(self, search_job_id: uuid.UUID) -> SearchJob | None:
         return next((job for job in self._jobs if job.job_id == search_job_id), None)
 
@@ -22,23 +31,23 @@ class InMemorySearchJobRepository:
         return self._jobs
 
 
-def test_handler_creates_and_saves_search_job():
+def test_handler_executes_search_job_via_factory():
     """
-    StartSearchCommand를 처리할 때, 핸들러는 SearchJob을 생성하고 저장해야 한다.
+    핸들러는 팩토리를 통해 적절한 서비스를 받아 태스크를 실행해야 한다.
     """
     # 1. 준비 (Arrange)
     fake_repository = InMemorySearchJobRepository()
-    handler = SearchCommandHandler(repository=fake_repository)
+
+    # 실제 팩토리를 사용하되, 실제 서비스를 등록
+    factory = PlatformServiceFactory()
+    factory.register_service(Platform.NAVER_BLOG, PlaywrightNaverBlogService())
+
+    handler = SearchCommandHandler(repository=fake_repository, factory=factory)
     command = StartSearchCommand(
         tasks=[
             TaskDTO(
                 keyword="강남 맛집",
                 urls=["https://blog.naver.com/post1"],
-                platform=Platform.NAVER_BLOG,
-            ),
-            TaskDTO(
-                keyword="제주도 여행",
-                urls=["https://blog.naver.com/post2"],
                 platform=Platform.NAVER_BLOG,
             ),
         ]
@@ -52,5 +61,8 @@ def test_handler_creates_and_saves_search_job():
     assert len(saved_jobs) == 1
 
     saved_job = saved_jobs[0]
-    assert isinstance(saved_job, SearchJob)
-    assert len(saved_job.tasks) == 2
+    # 핸들러가 search_job.start()와 search_job.update_task_result()를 호출했으므로
+    # 최종 상태는 COMPLETED 여야 함
+    assert saved_job.status == JobStatus.COMPLETED
+    assert len(saved_job.tasks) == 1
+    assert saved_job.tasks[0].status == TaskStatus.NOT_FOUND
