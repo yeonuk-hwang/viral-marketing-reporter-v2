@@ -1,22 +1,20 @@
 [project]
-name = "viral-marketing-reporter-py"
+name = "viral-marketing-reporter"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-authors = [
-    { name = "Yeonuk Hwang", email = "charlie.hwang131@gmail.com" }
-]
+authors = [{ name = "Yeonuk Hwang", email = "charlie.hwang131@gmail.com" }]
 requires-python = ">=3.13"
 dependencies = [
-    "customtkinter>=5.2.2",
+    "loguru>=0.7.3",
     "playwright>=1.55.0",
-    "pydantic>=2.11.9",
     "pyinstaller>=6.16.0",
+    "pyside6>=6.9.2",
 ]
-
-[project.scripts]
-viral-marketing-reporter-py = "viral_marketing_reporter_py:main"
 
 [build-system]
 requires = ["uv_build>=0.8.17,<0.9.0"]
 build-backend = "uv_build"
+
+[dependency-groups]
+dev = ["pytest>=8.4.2"]
