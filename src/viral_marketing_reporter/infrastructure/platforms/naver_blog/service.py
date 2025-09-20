@@ -12,9 +12,8 @@ from viral_marketing_reporter.domain.model import (
     SearchResult,
 )
 from viral_marketing_reporter.infrastructure.platforms.base import SearchPlatformService
-from viral_marketing_reporter.infrastructure.platforms.naver_blog.page_objects import (
-    NaverBlogSearchPage,
-)
+
+from .page_objects import NaverBlogSearchPage
 
 
 class PlaywrightNaverBlogService(SearchPlatformService):
@@ -58,6 +57,16 @@ class PlaywrightNaverBlogService(SearchPlatformService):
                     post_urls_to_check.add(href)
         return post_urls_to_check
 
+    async def _get_matching_post_if_found(
+        self, post_element: Locator, posts_to_find: list[Post]
+    ) -> Post | None:
+        """하나의 포스트 요소에서 찾아야 할 Post 객체가 있는지 확인합니다."""
+        resolved_urls = await self._resolve_post_urls(post_element)
+        for post_to_find in posts_to_find:
+            if post_to_find.url in resolved_urls:
+                return post_to_find
+        return None
+
     @override
     async def search_and_find_posts(
         self, keyword: Keyword, posts_to_find: list[Post], output_dir: Path
@@ -77,15 +86,15 @@ class PlaywrightNaverBlogService(SearchPlatformService):
 
         found_posts_in_top10: list[Post] = []
         for post_element in top_10_posts:
-            resolved_urls = await self._resolve_post_urls(post_element)
-            for post_to_find in posts_to_find:
-                if post_to_find.url in resolved_urls:
-                    found_posts_in_top10.append(post_to_find)
-                    await search_page.highlight_post(post_element)
-                    break
+            matching_post = await self._get_matching_post_if_found(
+                post_element, posts_to_find
+            )
+            if matching_post:
+                found_posts_in_top10.append(matching_post)
+                await search_page.highlight_post(post_element)
 
         screenshot_path = None
-        if found_posts_in_top10:
+        if found_posts_in_top10:  # 포스트를 하나라도 찾았는지 여부로 판단
             screenshot_path = await search_page.take_screenshot_of_container(
                 keyword.text, output_dir
             )
@@ -96,4 +105,3 @@ class PlaywrightNaverBlogService(SearchPlatformService):
             if screenshot_path
             else None,
         )
-
