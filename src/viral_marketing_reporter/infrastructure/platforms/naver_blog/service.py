@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Final, override
 
 import httpx
@@ -10,9 +11,8 @@ from viral_marketing_reporter.domain.model import (
     SearchResult,
 )
 from viral_marketing_reporter.infrastructure.platforms.base import SearchPlatformService
-from viral_marketing_reporter.infrastructure.platforms.naver_blog.page_objects import (
-    NaverBlogSearchPage,
-)
+
+from .page_objects import NaverBlogSearchPage
 
 
 class PlaywrightNaverBlogService(SearchPlatformService):
@@ -26,7 +26,7 @@ class PlaywrightNaverBlogService(SearchPlatformService):
 
     @override
     async def search_and_find_posts(
-        self, keyword: Keyword, posts_to_find: list[Post]
+        self, keyword: Keyword, posts_to_find: list[Post], output_dir: Path
     ) -> SearchResult:
         search_page = NaverBlogSearchPage(self.page)
         await search_page.goto(keyword.text)
@@ -71,7 +71,7 @@ class PlaywrightNaverBlogService(SearchPlatformService):
         screenshot_path = None
         if found_posts_in_top10:
             screenshot_path = await search_page.take_screenshot_of_container(
-                keyword.text
+                keyword.text, output_dir
             )
 
         return SearchResult(
@@ -80,3 +80,4 @@ class PlaywrightNaverBlogService(SearchPlatformService):
             if screenshot_path
             else None,
         )
+

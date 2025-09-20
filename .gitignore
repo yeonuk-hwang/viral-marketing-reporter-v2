@@ -10,3 +10,4 @@ wheels/
 .venv
 .gemini
 *.png
+.DS_Store

@@ -1,5 +1,6 @@
 import asyncio
 import uuid
+from pathlib import Path
 
 from viral_marketing_reporter.application.commands import StartSearchCommand
 from viral_marketing_reporter.domain.model import (
@@ -10,9 +11,13 @@ from viral_marketing_reporter.domain.model import (
     SearchTask,
 )
 from viral_marketing_reporter.domain.repositories import SearchJobRepository
+from viral_marketing_reporter.infrastructure.context import SearchExecutionContext
 from viral_marketing_reporter.infrastructure.platforms.factory import (
     PlatformServiceFactory,
 )
+
+# TODO: OS별 사용자 다운로드 폴더를 찾는 로직 추가
+DEFAULT_DOWNLOAD_PATH = Path.home() / "Downloads"
 
 
 class SearchCommandHandler:
@@ -25,11 +30,15 @@ class SearchCommandHandler:
         self.repository = repository
         self.factory = factory
 
-    async def _execute_task(self, task: SearchTask) -> tuple[uuid.UUID, SearchResult]:
+    async def _execute_task(
+        self, task: SearchTask, output_dir: str
+    ) -> tuple[uuid.UUID, SearchResult]:
         """개별 태스크를 비동기적으로 실행합니다."""
         platform_service = await self.factory.get_service(task.platform)
         result = await platform_service.search_and_find_posts(
-            keyword=task.keyword, posts_to_find=task.blog_posts_to_find
+            keyword=task.keyword,
+            posts_to_find=task.blog_posts_to_find,
+            output_dir=output_dir,
         )
         return task.task_id, result
 
@@ -45,8 +54,17 @@ class SearchCommandHandler:
         search_job = SearchJob(tasks=tasks)
         search_job.start()
 
-        async_tasks = [self._execute_task(task) for task in search_job.tasks]
-        results = await asyncio.gather(*async_tasks, return_exceptions=True)
+        output_dir = DEFAULT_DOWNLOAD_PATH / str(search_job.job_id)
+
+        async with SearchExecutionContext() as context:
+            factory = PlatformServiceFactory(context)
+            # TODO: Composition Root에서 팩토리 설정이 이루어져야 함
+            # factory.register_service(...)
+
+            async_tasks = [
+                self._execute_task(task, str(output_dir)) for task in search_job.tasks
+            ]
+            results = await asyncio.gather(*async_tasks, return_exceptions=True)
 
         for result in results:
             if isinstance(result, Exception):

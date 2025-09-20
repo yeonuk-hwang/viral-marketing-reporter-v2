@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -37,15 +39,19 @@ class NaverBlogSearchPage:
             '(element) => (element.style.outline = "3px solid red")'
         )
 
-    async def take_screenshot_of_container(self, keyword: str) -> str:
+    async def take_screenshot_of_container(
+        self, keyword: str, output_dir: Path
+    ) -> Path:
         """결과 컨테이너의 스크린샷을 찍고 파일 경로를 반환합니다."""
-        # 스크린샷 전 모든 요소가 보이도록 스크롤 보장
         all_posts = await self.get_top_10_posts()
         if all_posts:
             for post in all_posts:
                 await post.scroll_into_view_if_needed()
             await self.page.wait_for_load_state("networkidle")
 
-        screenshot_path = f"{keyword.replace(' ', '_')}.png"
+        os.makedirs(output_dir, exist_ok=True)
+        file_name = f"{keyword.replace(' ', '_')}.png"
+        screenshot_path = Path.joinpath(output_dir, file_name)
         await self.post_container.screenshot(path=screenshot_path)
         return screenshot_path
+

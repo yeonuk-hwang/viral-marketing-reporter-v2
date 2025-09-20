@@ -10,6 +10,7 @@ from viral_marketing_reporter.infrastructure.platforms.naver_blog.service import
 )
 
 FIXTURE_DIR = Path(__file__).parent.parent / "fixtures"
+SCREENSHOT_DIR = Path(__file__).parent.parent / "screenshots"
 
 
 @pytest.fixture
@@ -52,7 +53,9 @@ async def test_finds_specific_posts_from_html_fixture(
     # 3. 서비스 실행
     service = PlaywrightNaverBlogService(page=page)
     result = await service.search_and_find_posts(
-        keyword=keyword_to_search, posts_to_find=posts_to_find
+        keyword=keyword_to_search,
+        posts_to_find=posts_to_find,
+        output_dir=SCREENSHOT_DIR,
     )
 
     # 4. 결과 검증
@@ -63,5 +66,7 @@ async def test_finds_specific_posts_from_html_fixture(
     assert actual_found_urls == expected_found_urls
 
     assert result.screenshot is not None
-    assert result.screenshot.file_path == "식사대용_쉐이크.png"
-
+    assert result.screenshot.file_path == Path.joinpath(
+        SCREENSHOT_DIR, "식사대용_쉐이크.png"
+    )
+    assert result.screenshot.file_path.exists()

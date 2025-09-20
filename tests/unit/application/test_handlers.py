@@ -46,7 +46,7 @@ class FakeSearchPlatformService(SearchPlatformService):
 
     @override
     async def search_and_find_posts(
-        self, keyword: Keyword, posts_to_find: list[Post]
+        self, keyword: Keyword, posts_to_find: list[Post], output_dir: str
     ) -> SearchResult:
         await asyncio.sleep(0.01)
         if keyword.text == "강남 맛집":
