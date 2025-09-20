@@ -1,3 +1,4 @@
+import asyncio
 from pathlib import Path
 from typing import Final, override
 
@@ -85,17 +86,28 @@ class PlaywrightNaverBlogService(SearchPlatformService):
 
         top_10_posts = await search_page.get_top_10_posts()
 
+        # 각 포스트 요소에 대해 일치하는 Post를 찾는 비동기 작업을 생성합니다.
+        tasks = [
+            self._get_matching_post_if_found(post_element, posts_to_find)
+            for post_element in top_10_posts
+        ]
+        matching_results = await asyncio.gather(*tasks)
+
         found_posts_in_top10: list[Post] = []
-        for post_element in top_10_posts:
-            matching_post = await self._get_matching_post_if_found(
-                post_element, posts_to_find
-            )
+        elements_to_highlight: list[Locator] = []
+        for i, matching_post in enumerate(matching_results):
             if matching_post:
                 found_posts_in_top10.append(matching_post)
-                await search_page.highlight_post(post_element)
+                elements_to_highlight.append(top_10_posts[i])
 
         screenshot_path = None
         if found_posts_in_top10:
+            highlight_tasks = [
+                search_page.highlight_post(element)
+                for element in elements_to_highlight
+            ]
+            await asyncio.gather(*highlight_tasks)
+
             screenshot_path = await search_page.take_screenshot_of_container(
                 keyword.text, output_dir
             )
