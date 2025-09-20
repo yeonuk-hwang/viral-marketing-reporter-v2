@@ -1,5 +1,6 @@
 import asyncio
 import uuid
+from pathlib import Path
 from typing import Type, override
 
 import pytest
@@ -46,7 +47,7 @@ class FakeSearchPlatformService(SearchPlatformService):
 
     @override
     async def search_and_find_posts(
-        self, keyword: Keyword, posts_to_find: list[Post], output_dir: str
+        self, keyword: Keyword, posts_to_find: list[Post], output_dir: Path
     ) -> SearchResult:
         await asyncio.sleep(0.01)
         if keyword.text == "강남 맛집":
@@ -57,14 +58,17 @@ class FakeSearchPlatformService(SearchPlatformService):
 class FakeExecutionContext(SearchExecutionContext):
     """실제 브라우저를 띄우지 않는 가짜 실행 컨텍스트"""
 
+    @override
     async def __aenter__(self) -> "FakeExecutionContext":
         return self
 
-    async def __aexit__(self, *args, **kwargs) -> None:
+    @override
+    async def __aexit__(self, *args, **kwargs) -> None:  # pyright: ignore[reportUnknownParameterType, reportMissingParameterType]
         pass
 
+    @override
     async def new_page(self) -> Page:
-        return None  # type: ignore
+        return None  # pyright: ignore[reportReturnType]
 
 
 @pytest.mark.asyncio
