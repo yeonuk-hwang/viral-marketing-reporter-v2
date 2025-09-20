@@ -89,4 +89,3 @@ class PlaywrightNaverBlogService(SearchPlatformService):
             if screenshot_path
             else None,
         )
-

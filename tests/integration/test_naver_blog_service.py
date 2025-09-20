@@ -2,7 +2,7 @@ import re
 from pathlib import Path
 
 import pytest
-from playwright.async_api import Page, Route
+from playwright.async_api import Browser, Page, Route
 
 from viral_marketing_reporter.domain.model import Keyword, Post
 from viral_marketing_reporter.infrastructure.platforms.naver_blog_service import (

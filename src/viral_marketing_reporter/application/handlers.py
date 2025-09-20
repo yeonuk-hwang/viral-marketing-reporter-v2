@@ -27,7 +27,7 @@ class SearchCommandHandler:
 
     async def _execute_task(self, task: SearchTask) -> tuple[uuid.UUID, SearchResult]:
         """개별 태스크를 비동기적으로 실행합니다."""
-        platform_service = self.factory.get_service(task.platform)
+        platform_service = await self.factory.get_service(task.platform)
         result = await platform_service.search_and_find_posts(
             keyword=task.keyword, posts_to_find=task.blog_posts_to_find
         )
@@ -45,16 +45,12 @@ class SearchCommandHandler:
         search_job = SearchJob(tasks=tasks)
         search_job.start()
 
-        # 각 태스크를 비동기 작업으로 생성
         async_tasks = [self._execute_task(task) for task in search_job.tasks]
-
-        # 모든 태스크를 동시에 실행
         results = await asyncio.gather(*async_tasks, return_exceptions=True)
 
-        # 결과 업데이트
         for result in results:
             if isinstance(result, Exception):
-                # 실제로는 태스크 ID를 알 수 없으므로, 더 나은 예외 처리 방식이 필요함
+                # TODO: 태스크 ID를 특정하여 에러 처리 개선 필요
                 print(f"태스크 처리 중 에러 발생: {result}")
             else:
                 task_id, search_result = result
