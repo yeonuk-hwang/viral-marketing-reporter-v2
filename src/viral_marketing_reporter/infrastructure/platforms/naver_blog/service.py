@@ -12,8 +12,9 @@ from viral_marketing_reporter.domain.model import (
     SearchResult,
 )
 from viral_marketing_reporter.infrastructure.platforms.base import SearchPlatformService
-
-from .page_objects import NaverBlogSearchPage
+from viral_marketing_reporter.infrastructure.platforms.naver_blog.page_objects import (
+    NaverBlogSearchPage,
+)
 
 
 class PlaywrightNaverBlogService(SearchPlatformService):
@@ -74,11 +75,11 @@ class PlaywrightNaverBlogService(SearchPlatformService):
         search_page = NaverBlogSearchPage(self.page)
         await search_page.goto(keyword.text)
 
-        if not await search_page.is_result_container_visible():
-            logger.warning(
-                "검색 결과 컨테이너를 찾을 수 없음",
-                event_name="result_container_not_found",
-                keyword=keyword.text,
+        if await search_page.is_result_empty():
+            logger.info(
+                f"{keyword}에 대한 검색 결과가 없습니다.",
+                event_name="result_not_found",
+                keyword=keyword,
             )
             return SearchResult(found_posts=[], screenshot=None)
 
@@ -94,7 +95,7 @@ class PlaywrightNaverBlogService(SearchPlatformService):
                 await search_page.highlight_post(post_element)
 
         screenshot_path = None
-        if found_posts_in_top10:  # 포스트를 하나라도 찾았는지 여부로 판단
+        if found_posts_in_top10:
             screenshot_path = await search_page.take_screenshot_of_container(
                 keyword.text, output_dir
             )

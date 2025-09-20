@@ -4,9 +4,6 @@ from playwright.async_api import (
     Locator,
     Page,
 )
-from playwright.async_api import (
-    TimeoutError as PlaywrightTimeoutError,
-)
 
 
 class NaverBlogSearchPage:
@@ -24,15 +21,12 @@ class NaverBlogSearchPage:
     async def goto(self, keyword: str) -> None:
         """주어진 키워드로 검색 결과 페이지로 이동합니다."""
         search_url = f"https://search.naver.com/search.naver?ssc=tab.blog.all&sm=tab_jum&query={keyword}"
-        await self.page.goto(search_url, wait_until="domcontentloaded")
+        await self.page.goto(search_url)
 
-    async def is_result_container_visible(self) -> bool:
-        """검색 결과 컨테이너가 보이는지 확인합니다."""
-        try:
-            await self.post_container.wait_for(state="visible")
-            return True
-        except PlaywrightTimeoutError:
-            return False
+    async def is_result_empty(self) -> bool:
+        """검색 결과가 없는지 확인합니다."""
+        no_results_locator = self.page.get_by_text(r"에 대한 검색결과가 없습니다")
+        return await no_results_locator.is_visible()
 
     async def get_top_10_posts(self) -> list[Locator]:
         """상위 10개의 포스트 요소를 가져옵니다."""

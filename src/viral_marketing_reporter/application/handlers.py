@@ -42,6 +42,7 @@ class SearchCommandHandler:
                 posts_to_find=task.blog_posts_to_find,
                 output_dir=output_dir,
             )
+            logger.info(f"'{task.keyword.text}' 키워드에 대한 작업 종료")
             return task.task_id, result
 
     async def handle(self, command: StartSearchCommand):

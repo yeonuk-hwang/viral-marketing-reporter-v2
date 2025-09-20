@@ -1,8 +1,8 @@
 from playwright.sync_api import sync_playwright
 
 # 1. 설정
-SEARCH_KEYWORD = "식사대용 쉐이크"
-OUTPUT_FILE = "tests/fixtures/naver_blog_search_result.html"
+SEARCH_KEYWORD = "playwright 동시성 문제"
+OUTPUT_FILE = "tests/fixtures/naver_blog_search_less_than_10.html"
 
 # 2. Playwright 실행
 with sync_playwright() as p:
