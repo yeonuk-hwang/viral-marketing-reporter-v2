@@ -2,6 +2,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
+from pathlib import Path
 from typing import override
 
 # --- Value Objects ---
@@ -29,7 +30,7 @@ class Post:
 class Screenshot:
     """스크린샷 파일 경로를 나타내는 Value Object"""
 
-    file_path: str
+    file_path: Path
 
 
 @dataclass(frozen=True)

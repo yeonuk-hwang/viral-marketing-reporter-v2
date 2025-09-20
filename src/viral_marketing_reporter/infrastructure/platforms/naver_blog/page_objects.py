@@ -1,11 +1,12 @@
-from __future__ import annotations
-
-import os
 from pathlib import Path
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from playwright.async_api import Locator, Page
+from playwright.async_api import (
+    Locator,
+    Page,
+)
+from playwright.async_api import (
+    TimeoutError as PlaywrightTimeoutError,
+)
 
 
 class NaverBlogSearchPage:
@@ -27,7 +28,11 @@ class NaverBlogSearchPage:
 
     async def is_result_container_visible(self) -> bool:
         """검색 결과 컨테이너가 보이는지 확인합니다."""
-        return await self.post_container.is_visible()
+        try:
+            await self.post_container.wait_for(state="visible")
+            return True
+        except PlaywrightTimeoutError:
+            return False
 
     async def get_top_10_posts(self) -> list[Locator]:
         """상위 10개의 포스트 요소를 가져옵니다."""
@@ -49,9 +54,8 @@ class NaverBlogSearchPage:
                 await post.scroll_into_view_if_needed()
             await self.page.wait_for_load_state("networkidle")
 
-        os.makedirs(output_dir, exist_ok=True)
+        output_dir.mkdir(parents=True, exist_ok=True)
         file_name = f"{keyword.replace(' ', '_')}.png"
-        screenshot_path = Path.joinpath(output_dir, file_name)
+        screenshot_path = output_dir / file_name
         await self.post_container.screenshot(path=screenshot_path)
         return screenshot_path
-

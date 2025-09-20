@@ -12,8 +12,9 @@ from viral_marketing_reporter.domain.model import (
     SearchResult,
 )
 from viral_marketing_reporter.infrastructure.platforms.base import SearchPlatformService
-
-from .page_objects import NaverBlogSearchPage
+from viral_marketing_reporter.infrastructure.platforms.naver_blog.page_objects import (
+    NaverBlogSearchPage,
+)
 
 
 class PlaywrightNaverBlogService(SearchPlatformService):
@@ -48,9 +49,11 @@ class PlaywrightNaverBlogService(SearchPlatformService):
                             post_urls_to_check.add(response.headers["Location"])
                     except httpx.RequestError as e:
                         logger.warning(
-                            f"광고 URL 리다이렉트 확인 중 에러 발생: {href}, 오류: {e}"
+                            "광고 URL 리다이렉트 실패",
+                            event_name="ad_redirect_failed",
+                            url=href,
+                            error=str(e),
                         )
-
                 else:
                     post_urls_to_check.add(href)
         return post_urls_to_check
@@ -63,6 +66,11 @@ class PlaywrightNaverBlogService(SearchPlatformService):
         await search_page.goto(keyword.text)
 
         if not await search_page.is_result_container_visible():
+            logger.warning(
+                "검색 결과 컨테이너를 찾을 수 없음",
+                event_name="result_container_not_found",
+                keyword=keyword.text,
+            )
             return SearchResult(found_posts=[], screenshot=None)
 
         top_10_posts = await search_page.get_top_10_posts()
@@ -74,7 +82,7 @@ class PlaywrightNaverBlogService(SearchPlatformService):
                 if post_to_find.url in resolved_urls:
                     found_posts_in_top10.append(post_to_find)
                     await search_page.highlight_post(post_element)
-                    break  # 다음 post_element로 넘어감
+                    break
 
         screenshot_path = None
         if found_posts_in_top10:
