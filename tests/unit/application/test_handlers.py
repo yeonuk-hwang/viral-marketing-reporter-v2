@@ -1,7 +1,7 @@
 import asyncio
 import uuid
 from pathlib import Path
-from typing import Type, override
+from typing import override
 
 import pytest
 from playwright.async_api import Page
@@ -42,6 +42,8 @@ class InMemorySearchJobRepository(SearchJobRepository):
 
 
 class FakeSearchPlatformService(SearchPlatformService):
+    """성공, 실패, 예외 케이스를 시뮬레이션하는 가짜 서비스"""
+
     def __init__(self, page: Page) -> None:
         pass
 
@@ -50,14 +52,14 @@ class FakeSearchPlatformService(SearchPlatformService):
         self, keyword: Keyword, posts_to_find: list[Post], output_dir: Path
     ) -> SearchResult:
         await asyncio.sleep(0.01)
-        if keyword.text == "강남 맛집":
+        if keyword.text == "SUCCESS_KEYWORD":
             return SearchResult(found_posts=[posts_to_find[0]], screenshot=None)
+        if keyword.text == "ERROR_KEYWORD":
+            raise ValueError("Intentional test error")
         return SearchResult(found_posts=[], screenshot=None)
 
 
 class FakeExecutionContext(SearchExecutionContext):
-    """실제 브라우저를 띄우지 않는 가짜 실행 컨텍스트"""
-
     @override
     async def __aenter__(self) -> "FakeExecutionContext":
         return self
@@ -72,13 +74,11 @@ class FakeExecutionContext(SearchExecutionContext):
 
 
 @pytest.mark.asyncio
-async def test_handler_executes_tasks_with_injected_dependencies():
-    """핸들러는 주입된 의존성을 통해 태스크를 실행하고 결과를 종합해야 한다."""
+async def test_handler_creates_and_saves_search_job_on_success():
+    """핸들러가 모든 태스크가 성공했을 때 Job을 정상적으로 생성하고 저장하는지 검증합니다."""
     # 1. 준비 (Arrange)
     fake_repository = InMemorySearchJobRepository()
     fake_context = FakeExecutionContext()
-
-    # 팩토리에 가짜 컨텍스트와 가짜 서비스 클래스를 주입
     factory = PlatformServiceFactory(context=fake_context)
     factory.register_service(Platform.NAVER_BLOG, FakeSearchPlatformService)
 
@@ -86,13 +86,49 @@ async def test_handler_executes_tasks_with_injected_dependencies():
     command = StartSearchCommand(
         tasks=[
             TaskDTO(
-                keyword="강남 맛집",
+                keyword="SUCCESS_KEYWORD",
+                urls=["https://blog.naver.com/post1"],
+                platform=Platform.NAVER_BLOG,
+            ),
+        ]
+    )
+
+    # 2. 실행 (Act)
+    await handler.handle(command)
+
+    # 3. 검증 (Assert)
+    saved_jobs = fake_repository.list()
+    assert len(saved_jobs) == 1
+    saved_job = saved_jobs[0]
+    assert saved_job.status == JobStatus.COMPLETED
+    assert saved_job.tasks[0].status == TaskStatus.FOUND
+
+
+@pytest.mark.asyncio
+async def test_handler_handles_mixed_task_results():
+    """핸들러가 태스크의 성공, 실패, 예외 케이스를 모두 정확히 처리하는지 검증합니다."""
+    # 1. 준비 (Arrange)
+    fake_repository = InMemorySearchJobRepository()
+    fake_context = FakeExecutionContext()
+    factory = PlatformServiceFactory(context=fake_context)
+    factory.register_service(Platform.NAVER_BLOG, FakeSearchPlatformService)
+
+    handler = SearchCommandHandler(repository=fake_repository, factory=factory)
+    command = StartSearchCommand(
+        tasks=[
+            TaskDTO(
+                keyword="SUCCESS_KEYWORD",
                 urls=["https://blog.naver.com/post1"],
                 platform=Platform.NAVER_BLOG,
             ),
             TaskDTO(
-                keyword="제주도 여행",
+                keyword="FAILURE_KEYWORD",
                 urls=["https://blog.naver.com/post2"],
+                platform=Platform.NAVER_BLOG,
+            ),
+            TaskDTO(
+                keyword="ERROR_KEYWORD",
+                urls=["https://blog.naver.com/post3"],
                 platform=Platform.NAVER_BLOG,
             ),
         ]
@@ -107,9 +143,10 @@ async def test_handler_executes_tasks_with_injected_dependencies():
     saved_job = saved_jobs[0]
 
     assert saved_job.status == JobStatus.COMPLETED
-    assert len(saved_job.tasks) == 2
+    assert len(saved_job.tasks) == 3
 
-    task1 = next(t for t in saved_job.tasks if t.keyword.text == "강남 맛집")
-    task2 = next(t for t in saved_job.tasks if t.keyword.text == "제주도 여행")
-    assert task1.status == TaskStatus.FOUND
-    assert task2.status == TaskStatus.NOT_FOUND
+    # 각 태스크의 최종 상태를 정확히 기록했는지 확인
+    status_map = {task.keyword.text: task.status for task in saved_job.tasks}
+    assert status_map["SUCCESS_KEYWORD"] == TaskStatus.FOUND
+    assert status_map["FAILURE_KEYWORD"] == TaskStatus.NOT_FOUND
+    assert status_map["ERROR_KEYWORD"] == TaskStatus.ERROR

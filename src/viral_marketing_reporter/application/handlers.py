@@ -62,20 +62,26 @@ class SearchCommandHandler:
 
             output_dir = DEFAULT_DOWNLOAD_PATH / str(search_job.job_id)
 
-            async_tasks = [
-                self._execute_task(task, output_dir) for task in search_job.tasks
-            ]
-            results = await asyncio.gather(*async_tasks, return_exceptions=True)
+            async def run_and_capture_result(
+                task: SearchTask,
+            ) -> tuple[uuid.UUID, SearchResult | BaseException]:
+                """_execute_task를 안전하게 실행하고 예외 발생 시에도 task_id를 함께 반환합니다."""
+                try:
+                    # _execute_task는 성공 시 (task_id, result) 튜플을 반환합니다.
+                    _, result = await self._execute_task(task, output_dir)
+                    return task.task_id, result
+                except Exception as e:
+                    return task.task_id, e
 
-            for result in results:
+            async_tasks = [run_and_capture_result(task) for task in search_job.tasks]
+            results = await asyncio.gather(*async_tasks)
+
+            for task_id, result in results:
                 if isinstance(result, BaseException):
-                    logger.error(f"태스크 처리 중 예외 발생: {result}")
-                    # TODO: task_id를 알 수 없음, 하지만 에러인 경우 task_error로 업데이트는 해줘야 함
-                    # error인 경우에도 전체적으로 search_job 완료가 잘 되는지 테스트 필요
-                    # search_job.update_task_error(task_id)
+                    logger.error(f"태스크(id:{task_id}) 처리 중 예외 발생: {result}")
+                    search_job.update_task_error(task_id)
                 else:
-                    task_id, search_result = result
-                    search_job.update_task_result(task_id, search_result)
+                    search_job.update_task_result(task_id, result)
 
             logger.info("작업 종료", event_name="new_search_job_finished")
 

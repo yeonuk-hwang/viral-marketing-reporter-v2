@@ -8,6 +8,14 @@ wheels/
 
 # Virtual environments
 .venv
+
+# gemini
 .gemini
-*.png
+
+# OS
 .DS_Store
+
+## test screenshots
+tests/screenshots
+
+
