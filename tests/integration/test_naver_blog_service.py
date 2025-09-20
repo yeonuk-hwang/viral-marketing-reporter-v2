@@ -2,10 +2,10 @@ import re
 from pathlib import Path
 
 import pytest
-from playwright.async_api import Browser, Page, Route
+from playwright.async_api import Page, Route
 
 from viral_marketing_reporter.domain.model import Keyword, Post
-from viral_marketing_reporter.infrastructure.platforms.naver_blog_service import (
+from viral_marketing_reporter.infrastructure.platforms.naver_blog.service import (
     PlaywrightNaverBlogService,
 )
 
@@ -38,9 +38,16 @@ async def test_finds_specific_posts_from_html_fixture(
 
     # 2. 네트워크 요청 가로채기 (Mocking)
     async def handle_route(route: Route):
-        await route.fulfill(body=naver_search_html, content_type="text/html; charset=utf-8")
+        await route.fulfill(
+            body=naver_search_html, content_type="text/html; charset=utf-8"
+        )
 
-    await page.route(re.compile(r"https://search\.naver\.com/search\.naver\?.*query=식사대용\+쉐이크"), handle_route)
+    await page.route(
+        re.compile(
+            r"https://search\.naver\.com/search\.naver\?.*query=식사대용\+쉐이크"
+        ),
+        handle_route,
+    )
 
     # 3. 서비스 실행
     service = PlaywrightNaverBlogService(page=page)
@@ -57,3 +64,4 @@ async def test_finds_specific_posts_from_html_fixture(
 
     assert result.screenshot is not None
     assert result.screenshot.file_path == "식사대용_쉐이크.png"
+

@@ -2,13 +2,12 @@ from typing import Type
 
 from viral_marketing_reporter.domain.model import Platform
 from viral_marketing_reporter.infrastructure.context import SearchExecutionContext
-
-from .base import SearchPlatformService
+from viral_marketing_reporter.infrastructure.platforms.base import SearchPlatformService
 
 
 class PlatformServiceFactory:
     def __init__(self, context: SearchExecutionContext) -> None:
-        self._context = context
+        self._context: SearchExecutionContext = context
         self._service_classes: dict[Platform, Type[SearchPlatformService]] = {}
 
     def register_service(
