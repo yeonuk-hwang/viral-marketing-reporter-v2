@@ -33,10 +33,10 @@ def naver_blog_search_less_than_10_result_html() -> str:
 
 
 async def test_finds_specific_posts_from_html_fixture(
-    page: Page, naver_blog_search_html: str, tmp_path: Path
+    page: Page, naver_blog_search_html: str
 ):
     """저장된 HTML 파일을 이용해 서비스가 포스트를 정확히 찾는지 테스트합니다."""
-    output_dir = tmp_path / "screenshots"
+    output_dir = SCREENSHOT_DIR
     keyword = Keyword(text="식사대용 쉐이크")
     posts_to_find = [
         Post(url="https://m.blog.naver.com/ghzigc3833z7/223918882395"),
@@ -70,15 +70,15 @@ async def test_finds_specific_posts_from_html_fixture(
     actual_found_urls = {post.url for post in result.found_posts}
     assert actual_found_urls == expected_found_urls
     assert result.screenshot is not None
-    assert result.screenshot.file_path == expected_screenshot_path
+    assert Path(result.screenshot.file_path) == expected_screenshot_path
     assert expected_screenshot_path.exists()
 
 
 async def test_no_results_found(
-    page: Page, naver_blog_search_no_result_html: str, tmp_path: Path
+    page: Page, naver_blog_search_no_result_html: str
 ):
     """검색 결과가 없는 페이지에서 아무것도 찾지 않고 스크린샷도 생성하지 않는지 검증합니다."""
-    output_dir = tmp_path / "screenshots"
+    output_dir = SCREENSHOT_DIR
     keyword = Keyword(text="MABBDDASD")
     posts_to_find = [Post(url="https://blog.naver.com/some/post")]
 
@@ -104,10 +104,10 @@ async def test_no_results_found(
 
 
 async def test_less_than_10_results_found(
-    page: Page, naver_blog_search_less_than_10_result_html: str, tmp_path: Path
+    page: Page, naver_blog_search_less_than_10_result_html: str
 ):
     """10개 미만의 검색 결과에서도 정확히 포스트를 찾아내는지 검증합니다."""
-    output_dir = tmp_path / "screenshots"
+    output_dir = SCREENSHOT_DIR
     keyword = Keyword(text="playwright 동시성 문제")
     posts_to_find = [
         Post(url="https://blog.naver.com/genycho/223734017762"),
@@ -144,4 +144,3 @@ async def test_less_than_10_results_found(
     assert result.screenshot is not None
     assert Path(result.screenshot.file_path) == expected_screenshot_path
     assert expected_screenshot_path.exists()
-

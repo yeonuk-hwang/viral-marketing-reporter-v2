@@ -103,12 +103,15 @@ class PlaywrightNaverBlogService(SearchPlatformService):
         screenshot_path = None
         if found_posts_in_top10:
             highlight_tasks = [
-                search_page.highlight_post(element)
+                search_page.highlight_element(element)
                 for element in elements_to_highlight
             ]
+            highlight_tasks.append(
+                search_page.highlight_element(search_page.blog_tab_button)
+            )
             await asyncio.gather(*highlight_tasks)
 
-            screenshot_path = await search_page.take_screenshot_of_container(
+            screenshot_path = await search_page.take_screenshot_of_results(
                 keyword.text, output_dir
             )
 

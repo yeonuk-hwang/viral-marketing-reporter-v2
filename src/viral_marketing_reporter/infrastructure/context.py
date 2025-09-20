@@ -1,5 +1,7 @@
 from types import TracebackType
-from playwright.async_api import async_playwright, Browser, Playwright, Page
+
+from playwright.async_api import Browser, Page, Playwright, async_playwright
+
 
 class SearchExecutionContext:
     def __init__(self) -> None:
@@ -9,7 +11,9 @@ class SearchExecutionContext:
 
     async def __aenter__(self) -> "SearchExecutionContext":
         self._playwright = await async_playwright().start()
-        self.browser = await self._playwright.chromium.launch(headless=False) # GUI 확인을 위해 headless=False로 설정
+        self.browser = (
+            await self._playwright.chromium.launch()
+        )  # GUI 확인을 위해 headless=False로 설정
         return self
 
     async def __aexit__(
@@ -28,6 +32,6 @@ class SearchExecutionContext:
     async def new_page(self) -> Page:
         if not self.browser:
             raise RuntimeError("Context is not running.")
-        page = await self.browser.new_page()
+        page = await self.browser.new_page(viewport={"width": 1920, "height": 1080})
         self._pages.append(page)
         return page
