@@ -1,11 +1,11 @@
 # -*- mode: python ; coding: utf-8 -*-
-from playwright.driver.package_path import get_driver_path
+
 
 a = Analysis(
     ['src/viral_marketing_reporter/main.py'],
     pathex=['src'],
     binaries=[],
-    datas=[(str(get_driver_path().joinpath('browsers.json')), 'playwright/driver'), (str(get_driver_path()), 'playwright/driver')],
+    datas=[],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
