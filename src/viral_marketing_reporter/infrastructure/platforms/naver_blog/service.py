@@ -122,6 +122,7 @@ class PlaywrightNaverBlogService(SearchPlatformService):
                 keyword.text, output_dir
             )
 
+        await self.page.close()
         return SearchResult(
             found_posts=found_posts_in_top10,
             screenshot=Screenshot(file_path=screenshot_path)
