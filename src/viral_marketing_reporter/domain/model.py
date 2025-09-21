@@ -78,6 +78,7 @@ class SearchTask:
     platform: Platform
     status: TaskStatus = TaskStatus.PENDING
     result: SearchResult | None = None
+    error_message: str | None = None
     task_id: uuid.UUID = field(default_factory=uuid.uuid4)
 
     def update_result(self, result: SearchResult):
@@ -85,9 +86,10 @@ class SearchTask:
         self.status = TaskStatus.FOUND if result.found_posts else TaskStatus.NOT_FOUND
         self.result = result
 
-    def mark_as_error(self):
-        """태스크를 에러 상태로 변경합니다."""
+    def mark_as_error(self, message: str):
+        """태스크를 에러 상태로 변경하고 메시지를 기록합니다."""
         self.status = TaskStatus.ERROR
+        self.error_message = message
 
     @override
     def __eq__(self, other: object):
@@ -143,11 +145,11 @@ class SearchJob:
                 )
             )
 
-    def update_task_error(self, task_id: uuid.UUID):
+    def update_task_error(self, task_id: uuid.UUID, error_message: str):
         """에러가 발생한 태스크의 상태를 업데이트하고 이벤트를 기록합니다."""
         task = self._find_task_by_id(task_id)
         if task:
-            task.mark_as_error()
+            task.mark_as_error(error_message)
             self.events.append(
                 TaskCompleted(
                     task_id=task.task_id, job_id=self.job_id, status=task.status.value

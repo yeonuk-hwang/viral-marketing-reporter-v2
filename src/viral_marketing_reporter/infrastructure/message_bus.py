@@ -1,11 +1,22 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import TYPE_CHECKING, override
+from typing import TYPE_CHECKING, Awaitable, Callable, override
 
 from viral_marketing_reporter.application.commands import Command
 from viral_marketing_reporter.domain.events import Event
-from viral_marketing_reporter.domain.message_bus import Handler, MessageBus
+from viral_marketing_reporter.domain.message_bus import Handler, Message, MessageBus
+
+
+class FunctionHandler(Handler):
+    """함수를 핸들러 프로토콜에 맞게 감싸는 어댑터"""
+
+    def __init__(self, handler_func: Callable[[Message], Awaitable[None]]):
+        self._handler_func = handler_func
+
+    @override
+    async def handle(self, message: Message) -> None:
+        await self._handler_func(message)
 
 
 class InMemoryMessageBus(MessageBus):

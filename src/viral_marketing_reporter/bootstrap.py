@@ -27,7 +27,7 @@ def bootstrap(
     bus: MessageBus,
     factory: PlatformServiceFactory,
 ) -> MessageBus:
-    """메시지 버스에 커맨드 핸들러와 이벤트 핸들러를 등록합니다."""
+    """메시지 버스에 커맨드와 이벤트 핸들러를 등록합니다."""
     # 커맨드 핸들러 등록
     bus.register_command(
         CreateSearchCommand,

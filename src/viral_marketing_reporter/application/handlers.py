@@ -7,6 +7,11 @@ from viral_marketing_reporter.application.commands import (
     CreateSearchCommand,
     ExecuteSearchTaskCommand,
 )
+from viral_marketing_reporter.application.queries import (
+    GetJobResultQuery,
+    JobResultDTO,
+    TaskResultDTO,
+)
 from viral_marketing_reporter.domain.events import (
     JobCompleted,
     SearchJobCreated,
@@ -106,8 +111,6 @@ class ExecuteSearchTaskCommandHandler:
 
             platform_service = await self.factory.get_service(task_to_execute.platform)
 
-            print("command", command)
-
             # 사용자 다운로드 폴더 하위에 체계적으로 결과 저장
             output_dir = (
                 Path.home()
@@ -125,8 +128,8 @@ class ExecuteSearchTaskCommandHandler:
                     output_dir=output_dir,
                 )
                 job.update_task_result(task_to_execute.task_id, result)
-            except Exception:
-                job.update_task_error(task_to_execute.task_id)
+            except Exception as e:
+                job.update_task_error(task_to_execute.task_id, str(e))
 
             await self.uow.search_jobs.add(job)
             await self.uow.commit()
@@ -149,7 +152,7 @@ class TaskCompletedHandler:
 
 
 class JobCompletedHandler:
-    """TaskCompleted 이벤트를 처리하여 Job의 완료 여부를 체크합니다."""
+    """JobCompleted 이벤트를 처리하여 Job의 완료 여부를 체크합니다."""
 
     def __init__(self, uow: UnitOfWork):
         self.uow: Final = uow
@@ -157,3 +160,43 @@ class JobCompletedHandler:
     async def handle(self, event: JobCompleted):
         # TODO: UI 알림, 로깅 등 작업 수행
         pass
+
+
+class GetJobResultQueryHandler:
+    """GetJobResultQuery를 처리하여 검색 결과를 DTO로 변환하여 반환합니다."""
+
+    def __init__(self, uow: UnitOfWork):
+        self.uow: Final = uow
+
+    async def handle(self, query: GetJobResultQuery) -> JobResultDTO | None:
+        """쿼리를 처리하여 Job의 최종 결과를 DTO로 반환합니다."""
+        async with self.uow:
+            job = await self.uow.search_jobs.get(query.job_id)
+            if not job:
+                return None
+
+            task_dtos = []
+            for task in job.tasks:
+                found_urls = []
+                if task.result and task.result.found_posts:
+                    found_urls = [post.url for post in task.result.found_posts]
+
+                screenshot_path = None
+                if task.result and task.result.screenshot:
+                    screenshot_path = str(task.result.screenshot.file_path)
+
+                task_dtos.append(
+                    TaskResultDTO(
+                        keyword=task.keyword.text,
+                        status=task.status.value,
+                        found_post_urls=found_urls,
+                        screenshot_path=screenshot_path,
+                        error_message=task.error_message,
+                    )
+                )
+
+            return JobResultDTO(
+                job_id=job.job_id,
+                status=job.status.value,
+                tasks=task_dtos,
+            )
