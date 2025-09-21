@@ -526,7 +526,6 @@ dependencies = [
     { name = "playwright" },
     { name = "pyinstaller" },
     { name = "pyside6" },
-    { name = "pytest-mock" },
     { name = "sqlalchemy" },
 ]
 
@@ -534,6 +533,7 @@ dependencies = [
 dev = [
     { name = "pytest" },
     { name = "pytest-asyncio" },
+    { name = "pytest-mock" },
     { name = "pytest-playwright-asyncio" },
 ]
 
@@ -544,7 +544,6 @@ requires-dist = [
     { name = "playwright", specifier = ">=1.55.0" },
     { name = "pyinstaller", specifier = ">=6.16.0" },
     { name = "pyside6", specifier = ">=6.9.2" },
-    { name = "pytest-mock", specifier = ">=3.15.1" },
     { name = "sqlalchemy", specifier = ">=2.0.43" },
 ]
 
@@ -552,6 +551,7 @@ requires-dist = [
 dev = [
     { name = "pytest", specifier = ">=8.4.2" },
     { name = "pytest-asyncio", specifier = ">=1.2.0" },
+    { name = "pytest-mock", specifier = ">=3.15.1" },
     { name = "pytest-playwright-asyncio", specifier = ">=0.7.1" },
 ]
 

@@ -5,9 +5,7 @@ from typing import TYPE_CHECKING, override
 
 from viral_marketing_reporter.application.commands import Command
 from viral_marketing_reporter.domain.events import Event
-from viral_marketing_reporter.domain.message_bus import MessageBus, Handler
-
-
+from viral_marketing_reporter.domain.message_bus import Handler, MessageBus
 
 
 class InMemoryMessageBus(MessageBus):
@@ -15,7 +13,9 @@ class InMemoryMessageBus(MessageBus):
 
     def __init__(self):
         self._command_handlers: dict[type[Command], Handler] = {}
-        self._event_handlers: defaultdict[type[Event], list[Handler]] = defaultdict(list)
+        self._event_handlers: defaultdict[type[Event], list[Handler]] = defaultdict(
+            list
+        )
 
     @override
     def register_command(self, command: type[Command], handler: Handler) -> None:
@@ -37,8 +37,11 @@ class InMemoryMessageBus(MessageBus):
                 handler = self._command_handlers[type(message)]
                 await handler.handle(message)
             except KeyError:
-                raise ValueError(f"No handler found for command {type(message).__name__}")
+                raise ValueError(
+                    f"No handler found for command {type(message).__name__}"
+                )
         else:
             raise TypeError(
                 f"Message must be a Command or Event, not {type(message).__name__}"
             )
+

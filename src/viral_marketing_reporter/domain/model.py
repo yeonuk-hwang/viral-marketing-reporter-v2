@@ -108,7 +108,7 @@ class SearchJob:
     status: JobStatus = JobStatus.PENDING
     created_at: datetime = field(default_factory=datetime.now)
     job_id: uuid.UUID = field(default_factory=uuid.uuid4)
-    events: list[Event] = field(default_factory=list, init=False)
+    events: list[Event] = field(default_factory=list)
 
     @staticmethod
     def create(job_id: uuid.UUID, tasks: list[SearchTask]) -> "SearchJob":
@@ -174,3 +174,4 @@ class SearchJob:
     @override
     def __hash__(self):
         return hash(self.job_id)
+

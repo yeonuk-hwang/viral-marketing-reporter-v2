@@ -8,6 +8,7 @@ from viral_marketing_reporter.application.commands import (
     ExecuteSearchTaskCommand,
 )
 from viral_marketing_reporter.domain.events import (
+    JobCompleted,
     SearchJobCreated,
     SearchJobStarted,
     TaskCompleted,
@@ -45,7 +46,7 @@ class CreateSearchCommandHandler:
         ]
         async with self.uow:
             job = SearchJob.create(job_id=command.job_id, tasks=tasks)
-            await self.uow.search_jobs.save(job)
+            await self.uow.search_jobs.add(job)
             await self.uow.commit()
 
 
@@ -104,9 +105,18 @@ class ExecuteSearchTaskCommandHandler:
                 return
 
             platform_service = await self.factory.get_service(task_to_execute.platform)
-            # TODO: output_dir을 설정 등에서 받아오도록 수정 필요
-            output_dir = Path("/tmp/screenshots")
-            output_dir.mkdir(exist_ok=True)
+
+            print("command", command)
+
+            # 사용자 다운로드 폴더 하위에 체계적으로 결과 저장
+            output_dir = (
+                Path.home()
+                / "Downloads"
+                / "viral-reporter"
+                / task_to_execute.platform.value
+                / str(command.job_id)
+            )
+            output_dir.mkdir(parents=True, exist_ok=True)
 
             try:
                 result = await platform_service.search_and_find_posts(
@@ -118,7 +128,7 @@ class ExecuteSearchTaskCommandHandler:
             except Exception:
                 job.update_task_error(task_to_execute.task_id)
 
-            await self.uow.search_jobs.save(job)
+            await self.uow.search_jobs.add(job)
             await self.uow.commit()
 
 
@@ -137,3 +147,13 @@ class TaskCompletedHandler:
             job.check_if_completed()
             await self.uow.commit()
 
+
+class JobCompletedHandler:
+    """TaskCompleted 이벤트를 처리하여 Job의 완료 여부를 체크합니다."""
+
+    def __init__(self, uow: UnitOfWork):
+        self.uow: Final = uow
+
+    async def handle(self, event: JobCompleted):
+        # TODO: UI 알림, 로깅 등 작업 수행
+        pass

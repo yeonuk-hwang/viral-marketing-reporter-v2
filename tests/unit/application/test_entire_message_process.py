@@ -1,6 +1,7 @@
 from __future__ import annotations
+
 import uuid
-from collections import deque, defaultdict
+from collections import defaultdict, deque
 from typing import override
 
 import pytest
@@ -27,21 +28,21 @@ from viral_marketing_reporter.domain.model import (
     SearchJob,
     SearchResult,
 )
-from viral_marketing_reporter.domain.repositories import SearchJobRepository
-from viral_marketing_reporter.domain.uow import UnitOfWork
+from viral_marketing_reporter.infrastructure.message_bus import InMemoryMessageBus
 from viral_marketing_reporter.infrastructure.platforms.base import SearchPlatformService
 from viral_marketing_reporter.infrastructure.platforms.factory import (
     PlatformServiceFactory,
 )
-
-# Fakes for Integration Test
+from viral_marketing_reporter.infrastructure.uow import InMemoryUnitOfWork
 
 
 class FakeQueueMessageBus(MessageBus):
     def __init__(self):
         self.queue = deque()
         self._command_handlers: dict[type[Command], Handler] = {}
-        self._event_handlers: defaultdict[type[Event], list[Handler]] = defaultdict(list)
+        self._event_handlers: defaultdict[type[Event], list[Handler]] = defaultdict(
+            list
+        )
 
     def register_command(self, command, handler):
         self._command_handlers[command] = handler
@@ -65,41 +66,6 @@ class FakeQueueMessageBus(MessageBus):
             raise ValueError(f"No handler for {type(message)}")
 
 
-class FakeIntegrationUnitOfWork(UnitOfWork):
-    def __init__(self, bus: FakeQueueMessageBus):
-        self.search_jobs = InMemorySearchJobRepository()
-        self.bus = bus
-
-    async def __aenter__(self) -> FakeIntegrationUnitOfWork:
-        self.committed = False
-        return self
-
-    async def __aexit__(self, exc_type, exc_val, traceback):
-        pass
-
-    async def commit(self):
-        for job in self.search_jobs._jobs.values():
-            for event in job.pull_events():
-                await self.bus.handle(event)
-        self.committed = True
-
-    async def rollback(self):
-        pass
-
-
-class InMemorySearchJobRepository(SearchJobRepository):
-    def __init__(self) -> None:
-        self._jobs: dict[uuid.UUID, SearchJob] = {}
-
-    @override
-    async def save(self, search_job: SearchJob) -> None:
-        self._jobs[search_job.job_id] = search_job
-
-    @override
-    async def get(self, search_job_id: uuid.UUID) -> SearchJob | None:
-        return self._jobs.get(search_job_id)
-
-
 # Integration Test
 
 
@@ -107,21 +73,25 @@ class InMemorySearchJobRepository(SearchJobRepository):
 async def test_full_process_manager_flow(mocker: MockerFixture):
     # Arrange
     bus = FakeQueueMessageBus()
-    uow = FakeIntegrationUnitOfWork(bus)
+    uow = InMemoryUnitOfWork(bus)
 
     factory = mocker.AsyncMock(spec=PlatformServiceFactory)
     fake_service = mocker.AsyncMock(spec=SearchPlatformService)
-    fake_service.search_and_find_posts.return_value = SearchResult(found_posts=[], screenshot=None)
+    fake_service.search_and_find_posts.return_value = SearchResult(
+        found_posts=[], screenshot=None
+    )
     factory.get_service.return_value = fake_service
 
     bootstrap.bootstrap(uow=uow, bus=bus, factory=factory)
-    class DummyJobCompletedHandler(Handler):
-        async def handle(self, event: JobCompleted) -> None: pass
-    bus.subscribe_to_event(JobCompleted, DummyJobCompletedHandler())
 
     # Act & Assert
     job_id = uuid.uuid4()
-    await bus.handle(CreateSearchCommand(job_id=job_id, tasks=[TaskDTO(keyword="k1", urls=[], platform=Platform.NAVER_BLOG)]))
+    await bus.handle(
+        CreateSearchCommand(
+            job_id=job_id,
+            tasks=[TaskDTO(keyword="k1", urls=[], platform=Platform.NAVER_BLOG)],
+        )
+    )
 
     # 1. CreateSearchCommandHandler
     await bus.run_once()
@@ -152,3 +122,34 @@ async def test_full_process_manager_flow(mocker: MockerFixture):
     saved_job = await uow.search_jobs.get(job_id)
     assert saved_job is not None
     assert saved_job.status == JobStatus.COMPLETED
+
+
+@pytest.mark.asyncio
+async def test_full_process_manager_flow_with_in_memory_bus(mocker: MockerFixture):
+    # Arrange
+    bus = InMemoryMessageBus()
+    uow = InMemoryUnitOfWork(bus)
+
+    factory = mocker.AsyncMock(spec=PlatformServiceFactory)
+    fake_service = mocker.AsyncMock(spec=SearchPlatformService)
+    fake_service.search_and_find_posts.return_value = SearchResult(
+        found_posts=[], screenshot=None
+    )
+    factory.get_service.return_value = fake_service
+
+    bootstrap.bootstrap(uow=uow, bus=bus, factory=factory)
+
+    # Act & Assert
+    job_id = uuid.uuid4()
+    await bus.handle(
+        CreateSearchCommand(
+            job_id=job_id,
+            tasks=[TaskDTO(keyword="k1", urls=[], platform=Platform.NAVER_BLOG)],
+        )
+    )
+
+    # 6. Final state check
+    saved_job = await uow.search_jobs.get(job_id)
+    assert saved_job is not None
+    assert saved_job.status == JobStatus.COMPLETED
+

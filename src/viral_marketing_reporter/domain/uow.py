@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 from typing import Protocol
 
@@ -16,8 +15,8 @@ class UnitOfWork(Protocol):
     async def __aexit__(self, exc_type, exc_val, traceback):
         ...
 
-    async def commit(self):
+    async def commit(self) -> None:
         ...
 
-    async def rollback(self):
+    async def rollback(self) -> None:
         ...

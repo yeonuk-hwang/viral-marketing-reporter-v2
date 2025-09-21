@@ -8,6 +8,7 @@ from viral_marketing_reporter.application.commands import (
     ExecuteSearchTaskCommand,
 )
 from viral_marketing_reporter.domain.events import (
+    JobCompleted,
     SearchJobCreated,
     SearchJobStarted,
     TaskCompleted,
@@ -50,6 +51,6 @@ def bootstrap(
         TaskCompleted,
         handlers.TaskCompletedHandler(uow=uow),
     )
+    bus.subscribe_to_event(JobCompleted, handlers.JobCompletedHandler(uow=uow))
 
     return bus
-

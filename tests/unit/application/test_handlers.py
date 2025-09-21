@@ -43,13 +43,14 @@ from viral_marketing_reporter.infrastructure.platforms.base import SearchPlatfor
 from viral_marketing_reporter.infrastructure.platforms.factory import (
     PlatformServiceFactory,
 )
-
-# Fakes
+from viral_marketing_reporter.infrastructure.repositories import (
+    in_memory_repository_factory,
+)
 
 
 class FakeUnitOfWork(UnitOfWork):
     def __init__(self):
-        self.search_jobs: InMemorySearchJobRepository = InMemorySearchJobRepository()  # pyright: ignore[reportIncompatibleVariableOverride]
+        self.search_jobs: SearchJobRepository = in_memory_repository_factory()
         self.committed: bool = False
         self.events: list[Event] = []
 
@@ -65,26 +66,13 @@ class FakeUnitOfWork(UnitOfWork):
 
     @override
     async def commit(self):
-        for job in self.search_jobs._jobs.values():
+        for job in self.search_jobs.seen:
             self.events.extend(job.pull_events())
         self.committed = True
 
     @override
     async def rollback(self):
         pass
-
-
-class InMemorySearchJobRepository(SearchJobRepository):
-    def __init__(self) -> None:
-        self._jobs: dict[uuid.UUID, SearchJob] = {}
-
-    @override
-    async def save(self, search_job: SearchJob) -> None:
-        self._jobs[search_job.job_id] = search_job
-
-    @override
-    async def get(self, search_job_id: uuid.UUID) -> SearchJob | None:
-        return self._jobs.get(search_job_id)
 
 
 # Unit Tests
@@ -97,7 +85,7 @@ async def test_create_search_command_handler_creates_job():
     job_id = uuid.uuid4()
     command = CreateSearchCommand(
         job_id=job_id,
-        tasks=[TaskDTO(keyword="k1", urls=[], platform=Platform.NAVER_BLOG)]
+        tasks=[TaskDTO(keyword="k1", urls=[], platform=Platform.NAVER_BLOG)],
     )
 
     await handler.handle(command)
@@ -116,7 +104,7 @@ async def test_search_job_created_handler_starts_job():
     handler = SearchJobCreatedHandler(uow=uow)
     job_id = uuid.uuid4()
     job = SearchJob.create(job_id=job_id, tasks=[])
-    await uow.search_jobs.save(job)
+    await uow.search_jobs.add(job)
     await uow.commit()
 
     event = SearchJobCreated(job_id=job.job_id, created_at=job.created_at)
@@ -149,7 +137,7 @@ async def test_search_job_started_handler_dispatches_commands(mocker: MockerFixt
         keyword=Keyword(text="k1"), blog_posts_to_find=[], platform=Platform.NAVER_BLOG
     )
     job = SearchJob(tasks=[task])
-    await uow.search_jobs.save(job)
+    await uow.search_jobs.add(job)
 
     event = SearchJobStarted(job_id=job.job_id)
     await handler.handle(event)
@@ -175,7 +163,7 @@ async def test_execute_search_task_handler_updates_job(mocker: MockerFixture):
         keyword=Keyword(text="k1"), blog_posts_to_find=[], platform=Platform.NAVER_BLOG
     )
     job = SearchJob(tasks=[task])
-    await uow.search_jobs.save(job)
+    await uow.search_jobs.add(job)
     await uow.commit()
 
     handler = ExecuteSearchTaskCommandHandler(uow=uow, factory=factory)
@@ -205,7 +193,7 @@ async def test_task_completed_handler_marks_job_as_completed():
     job = SearchJob(tasks=[task1, task2])
     job.update_task_result(task1.task_id, SearchResult(found_posts=[], screenshot=None))
     job.update_task_result(task2.task_id, SearchResult(found_posts=[], screenshot=None))
-    await uow.search_jobs.save(job)
+    await uow.search_jobs.add(job)
     await uow.commit()
 
     event = TaskCompleted(
