@@ -30,8 +30,9 @@ class PlaywrightNaverBlogService(SearchPlatformService):
     async def _resolve_post_urls(self, post_element: Locator) -> set[str]:
         """
         하나의 포스트 요소 내 모든 링크를 실제 URL로 변환하고,
-        그 중 가장 빈번하게 나타나는 URL 하나만 집합으로 반환합니다.
+        유효한 블로그 포스트 URL 중 가장 빈번하게 나타나는 URL 하나만 집합으로 반환합니다.
         """
+        import re
         from collections import Counter
 
         post_urls_to_check: list[str] = []
@@ -62,12 +63,21 @@ class PlaywrightNaverBlogService(SearchPlatformService):
                         )
                 else:
                     post_urls_to_check.append(href)
-        
+
         if not post_urls_to_check:
             return set()
 
+        # 네이버 블로그 게시물 URL 패턴과 일치하는 것만 필터링합니다.
+        blog_post_pattern = re.compile(r"^https://blog\.naver\.com/[^/]+/\d+$")
+        valid_blog_urls = [
+            url for url in post_urls_to_check if blog_post_pattern.match(url)
+        ]
+
+        if not valid_blog_urls:
+            return set()
+
         # 가장 빈번하게 등장하는 URL을 찾아 반환합니다.
-        url_counts = Counter(post_urls_to_check)
+        url_counts = Counter(valid_blog_urls)
         most_common_url = url_counts.most_common(1)[0][0]
         return {most_common_url}
 
@@ -118,9 +128,7 @@ class PlaywrightNaverBlogService(SearchPlatformService):
                 post for post in matching_results if post
             ]
             elements_to_highlight: list[Locator] = [
-                top_10_posts[i]
-                for i, post in enumerate(matching_results)
-                if post
+                top_10_posts[i] for i, post in enumerate(matching_results) if post
             ]
 
             screenshot_path = None
