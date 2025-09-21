@@ -1,6 +1,5 @@
 import asyncio
 import signal
-import subprocess
 import sys
 from pathlib import Path
 
@@ -65,7 +64,7 @@ def global_exception_handler(exc_type, exc_value, exc_traceback):
 
 
 async def run_app(app: QApplication):
-    """애플리케이션을 설정하고 실행합니다."""
+    """애플리케-이션을 설정하고 실행합니다."""
     logger.info("Application starting...")
 
     context = ApplicationContext()
@@ -114,72 +113,10 @@ async def run_app(app: QApplication):
         app.quit()
 
 
-def install_playwright_chromium(app: QApplication):
-    """
-    Playwright의 Chromium 브라우저를 설치합니다.
-    이미 설치된 경우 아무 작업도 수행하지 않습니다.
-    """
-    logger.info("Checking and installing Playwright Chromium browser if not present...")
-
-    msg_box = QMessageBox()
-    msg_box.setIcon(QMessageBox.Icon.Information)
-    msg_box.setText("초기 설정 중...")
-    msg_box.setInformativeText(
-        "필수 구성 요소(Chromium)를 확인하고 있습니다. 잠시만 기다려주세요."
-    )
-    msg_box.setWindowTitle("설정")
-    msg_box.setStandardButtons(QMessageBox.StandardButton.NoButton)
-    msg_box.show()
-    app.processEvents()  # UI 업데이트
-
-    try:
-        # subprocess를 사용하여 백그라운드에서 실행하고 콘솔 창을 숨김
-        command = [sys.executable, "-m", "playwright", "install", "chromium"]
-
-        startupinfo = None
-        if sys.platform == "win32":
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-
-        result = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            startupinfo=startupinfo,
-            check=False,
-        )
-
-        if result.returncode != 0:
-            raise RuntimeError(f"Playwright Chromium 설치 실패:\n{result.stderr}")
-
-        logger.info("Playwright Chromium is up to date.")
-
-    except Exception as e:
-        logger.error(f"Failed to install Playwright Chromium: {e}")
-        error_box = QMessageBox()
-        error_box.setIcon(QMessageBox.Icon.Critical)
-        error_box.setText("필수 구성 요소 설치 실패")
-        error_box.setInformativeText(
-            "Chromium 브라우저를 설치하는 데 실패했습니다. "
-            "인터넷 연결을 확인하거나 수동으로 설치해주세요.\n"
-            f"오류: {e}"
-        )
-        error_box.setWindowTitle("오류")
-        error_box.exec()
-        sys.exit(1)
-    finally:
-        msg_box.close()
-
-
 if __name__ == "__main__":
     sys.excepthook = global_exception_handler
     try:
         app = QApplication(sys.argv)
-
-        # 애플리케이션 실행 전 브라우저 설치 확인
-        install_playwright_chromium(app)
-
         loop = QEventLoop(app)
         asyncio.set_event_loop(loop)
         loop.run_until_complete(run_app(app))
