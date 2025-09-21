@@ -1,5 +1,6 @@
 import asyncio
 import signal
+import subprocess
 import sys
 from pathlib import Path
 
@@ -28,11 +29,12 @@ from viral_marketing_reporter.presentation.main_window import MainWindow
 # --- 로깅 설정 ---
 # (기존 로깅 설정과 동일)
 logger.remove()
-logger.add(
-    sys.stderr,
-    level="DEBUG",
-    format="<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level> | <yellow>{extra}</yellow>",
-)
+if sys.stderr:
+    logger.add(
+        sys.stderr,
+        level="DEBUG",
+        format="<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level> | <yellow>{extra}</yellow>",
+    )
 log_file_path = Path.home() / "Downloads" / "viral-reporter" / "debug.log"
 log_file_path.parent.mkdir(parents=True, exist_ok=True)
 logger.add(
@@ -136,8 +138,6 @@ def install_playwright_chromium(app: QApplication):
 
         startupinfo = None
         if sys.platform == "win32":
-            import subprocess
-
             startupinfo = subprocess.STARTUPINFO()
             startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
 
