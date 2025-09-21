@@ -28,8 +28,13 @@ class PlaywrightNaverBlogService(SearchPlatformService):
         self.page = page
 
     async def _resolve_post_urls(self, post_element: Locator) -> set[str]:
-        """하나의 포스트 요소 내 모든 링크를 실제 URL로 변환하여 집합으로 반환합니다."""
-        post_urls_to_check: set[str] = set()
+        """
+        하나의 포스트 요소 내 모든 링크를 실제 URL로 변환하고,
+        그 중 가장 빈번하게 나타나는 URL 하나만 집합으로 반환합니다.
+        """
+        from collections import Counter
+
+        post_urls_to_check: list[str] = []
         all_links = await post_element.locator("a").all()
 
         async with httpx.AsyncClient() as client:
@@ -47,7 +52,7 @@ class PlaywrightNaverBlogService(SearchPlatformService):
                             response.status_code == 307
                             and "Location" in response.headers
                         ):
-                            post_urls_to_check.add(response.headers["Location"])
+                            post_urls_to_check.append(response.headers["Location"])
                     except httpx.RequestError as e:
                         logger.warning(
                             "광고 URL 리다이렉트 실패",
@@ -56,8 +61,15 @@ class PlaywrightNaverBlogService(SearchPlatformService):
                             error=str(e),
                         )
                 else:
-                    post_urls_to_check.add(href)
-        return post_urls_to_check
+                    post_urls_to_check.append(href)
+        
+        if not post_urls_to_check:
+            return set()
+
+        # 가장 빈번하게 등장하는 URL을 찾아 반환합니다.
+        url_counts = Counter(post_urls_to_check)
+        most_common_url = url_counts.most_common(1)[0][0]
+        return {most_common_url}
 
     async def _get_matching_post_if_found(
         self, post_element: Locator, posts_to_find: list[Post]
@@ -73,59 +85,64 @@ class PlaywrightNaverBlogService(SearchPlatformService):
     async def search_and_find_posts(
         self, keyword: Keyword, posts_to_find: list[Post], output_dir: Path
     ) -> SearchResult:
-        search_page = NaverBlogSearchPage(self.page)
-        await search_page.goto(keyword.text)
+        try:
+            search_page = NaverBlogSearchPage(self.page)
+            await search_page.goto(keyword.text)
 
-        if await search_page.is_result_empty():
-            logger.info(
-                f"{keyword}에 대한 검색 결과가 없습니다.",
-                event_name="result_not_found",
-                keyword=keyword,
-            )
-            return SearchResult(found_posts=[], screenshot=None)
+            if await search_page.is_result_empty():
+                logger.info(
+                    f"{keyword}에 대한 검색 결과가 없습니다.",
+                    event_name="result_not_found",
+                    keyword=keyword,
+                )
+                return SearchResult(found_posts=[], screenshot=None)
 
-        top_10_posts = await search_page.get_top_10_posts()
+            top_10_posts = await search_page.get_top_10_posts()
 
-        if not top_10_posts:
-            logger.error(f"{keyword.text}에 대해서 포스트를 찾을 수 없습니다.")
-            logger.error(await search_page.page.content())
-            await search_page.page.screenshot(
-                path=(output_dir / f"{keyword}_error.png")
-            )
+            if not top_10_posts:
+                logger.error(f"{keyword.text}에 대해서 포스트를 찾을 수 없습니다.")
+                logger.error(await search_page.page.content())
+                await search_page.page.screenshot(
+                    path=(output_dir / f"{keyword}_error.png")
+                )
+                # 결과가 없더라도 빈 결과 반환
+                return SearchResult(found_posts=[], screenshot=None)
 
-        # 각 포스트 요소에 대해 일치하는 Post를 찾는 비동기 작업을 생성합니다.
-        tasks = [
-            self._get_matching_post_if_found(post_element, posts_to_find)
-            for post_element in top_10_posts
-        ]
-        matching_results = await asyncio.gather(*tasks)
-
-        found_posts_in_top10: list[Post] = []
-        elements_to_highlight: list[Locator] = []
-        for i, matching_post in enumerate(matching_results):
-            if matching_post:
-                found_posts_in_top10.append(matching_post)
-                elements_to_highlight.append(top_10_posts[i])
-
-        screenshot_path = None
-        if found_posts_in_top10:
-            highlight_tasks = [
-                search_page.highlight_element(element)
-                for element in elements_to_highlight
+            tasks = [
+                self._get_matching_post_if_found(post_element, posts_to_find)
+                for post_element in top_10_posts
             ]
-            highlight_tasks.append(
-                search_page.highlight_element(search_page.blog_tab_button)
-            )
-            await asyncio.gather(*highlight_tasks)
+            matching_results = await asyncio.gather(*tasks)
 
-            screenshot_path = await search_page.take_screenshot_of_results(
-                keyword.text, output_dir
-            )
+            found_posts_in_top10: list[Post] = [
+                post for post in matching_results if post
+            ]
+            elements_to_highlight: list[Locator] = [
+                top_10_posts[i]
+                for i, post in enumerate(matching_results)
+                if post
+            ]
 
-        await self.page.close()
-        return SearchResult(
-            found_posts=found_posts_in_top10,
-            screenshot=Screenshot(file_path=screenshot_path)
-            if screenshot_path
-            else None,
-        )
+            screenshot_path = None
+            if found_posts_in_top10:
+                highlight_tasks = [
+                    search_page.highlight_element(element)
+                    for element in elements_to_highlight
+                ]
+                highlight_tasks.append(
+                    search_page.highlight_element(search_page.blog_tab_button)
+                )
+                await asyncio.gather(*highlight_tasks)
+
+                screenshot_path = await search_page.take_screenshot_of_results(
+                    keyword.text, output_dir
+                )
+
+            return SearchResult(
+                found_posts=found_posts_in_top10,
+                screenshot=Screenshot(file_path=screenshot_path)
+                if screenshot_path
+                else None,
+            )
+        finally:
+            await self.page.close()
