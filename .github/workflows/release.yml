@@ -3,7 +3,7 @@ name: Release Windows Executable
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
 
 jobs:
   build-windows:
@@ -11,41 +11,40 @@ jobs:
     permissions:
       contents: write
 
-
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.13' # 프로젝트의 Python 버전에 맞게 조정하세요.
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13" # 프로젝트의 Python 버전에 맞게 조정하세요.
 
-    - name: Install uv
-      run: pip install uv
+      - name: Install uv
+        run: pip install uv
 
-    - name: Install dependencies
-      run: uv sync --dev
+      - name: Install dependencies
+        run: uv sync --dev
 
-    - name: Install Playwright Browsers
-      run: uv run playwright install --with-deps chromium
-      env:
-        PLAYWRIGHT_BROWSERS_PATH: 0
+      - name: Install Playwright Browsers
+        run: uv run playwright install --with-deps chromium
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: 0
 
-    - name: Build with PyInstaller
-      run: uv run pyinstaller --noconfirm --clean ViralMarketingReporter.spec
+      - name: Build with PyInstaller
+        run: uv run pyinstaller --noconfirm --clean src/viral_marketing_reporter/main.py
 
-    - name: Package application for release
-      shell: pwsh
-      run: |
-        $VERSION = "${{ github.ref_name }}"
-        $ZIP_FILENAME = "ViralMarketingReporter-windows-${VERSION}.zip"
-        Compress-Archive -Path dist/ViralMarketingReporter -DestinationPath $ZIP_FILENAME
-        echo "RELEASE_ZIP_PATH=$ZIP_FILENAME" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Package application for release
+        shell: pwsh
+        run: |
+          $VERSION = "${{ github.ref_name }}"
+          $ZIP_FILENAME = "ViralMarketingReporter-windows-${VERSION}.zip"
+          Compress-Archive -Path dist/ViralMarketingReporter -DestinationPath $ZIP_FILENAME
+          echo "RELEASE_ZIP_PATH=$ZIP_FILENAME" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-    - name: Create GitHub Release
-      uses: softprops/action-gh-release@v1
-      with:
-        files: ${{ env.RELEASE_ZIP_PATH }}
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: ${{ env.RELEASE_ZIP_PATH }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
