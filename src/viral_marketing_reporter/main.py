@@ -9,7 +9,7 @@ from qasync import QEventLoop
 
 from viral_marketing_reporter import bootstrap
 from viral_marketing_reporter.application.handlers import GetJobResultQueryHandler
-from viral_marketing_reporter.domain.events import JobCompleted
+from viral_marketing_reporter.domain.events import JobCompleted, TaskCompleted
 from viral_marketing_reporter.domain.model import Platform
 from viral_marketing_reporter.infrastructure.context import ApplicationContext
 from viral_marketing_reporter.infrastructure.message_bus import (
@@ -96,6 +96,9 @@ async def run_app(app: QApplication):
         )
         bus.subscribe_to_event(
             JobCompleted, FunctionHandler(window.handle_job_completed)
+        )
+        bus.subscribe_to_event(
+            TaskCompleted, FunctionHandler(window.handle_task_completed)
         )
         window.show()
         

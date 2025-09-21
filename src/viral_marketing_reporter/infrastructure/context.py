@@ -23,7 +23,7 @@ class ApplicationContext:
 
     async def __aenter__(self) -> ApplicationContext:
         self._playwright = await async_playwright().start()
-        self.browser = await self._playwright.chromium.launch(headless=False)
+        self.browser = await self._playwright.chromium.launch()
         self._context = await self.browser.new_context(
             viewport={"width": 1920, "height": 1080}
         )
