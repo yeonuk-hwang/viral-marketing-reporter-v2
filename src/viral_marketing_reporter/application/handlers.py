@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import TYPE_CHECKING, Final
+
+from loguru import logger
 
 from viral_marketing_reporter.application.commands import (
     CreateSearchCommand,
@@ -20,10 +23,12 @@ from viral_marketing_reporter.domain.events import (
 )
 from viral_marketing_reporter.domain.message_bus import MessageBus
 from viral_marketing_reporter.domain.model import (
+    JobStatus,
     Keyword,
     Post,
     SearchJob,
     SearchTask,
+    TaskStatus,
 )
 from viral_marketing_reporter.infrastructure.platforms.factory import (
     PlatformServiceFactory,
@@ -34,169 +39,223 @@ if TYPE_CHECKING:
 
 
 class CreateSearchCommandHandler:
-    """StartSearchCommand를 처리하여 SearchJob을 생성하고 저장합니다."""
-
     def __init__(self, uow: UnitOfWork):
         self.uow: Final = uow
 
     async def handle(self, command: CreateSearchCommand):
-        """커맨드를 처리합니다."""
-        tasks = [
-            SearchTask(
-                keyword=Keyword(text=task_dto.keyword),
-                blog_posts_to_find=[Post(url=url) for url in task_dto.urls],
-                platform=task_dto.platform,
-            )
-            for task_dto in command.tasks
-        ]
-        async with self.uow:
-            job = SearchJob.create(job_id=command.job_id, tasks=tasks)
-            await self.uow.search_jobs.add(job)
-            await self.uow.commit()
+        with logger.contextualize(job_id=command.job_id):
+            logger.debug(f"Handling CreateSearchCommand for job {command.job_id}.")
+            tasks = [
+                SearchTask(
+                    keyword=Keyword(text=task_dto.keyword),
+                    blog_posts_to_find=[Post(url=url) for url in task_dto.urls],
+                    platform=task_dto.platform,
+                )
+                for task_dto in command.tasks
+            ]
+            async with self.uow:
+                job = SearchJob.create(job_id=command.job_id, tasks=tasks)
+                await self.uow.search_jobs.add(job)
+                await self.uow.commit()
+            logger.info(f"SearchJob {job.job_id} created with {len(tasks)} tasks.")
+            logger.info(SearchJob)
 
 
 class SearchJobCreatedHandler:
-    """SearchJobCreated 이벤트를 처리하여 Job을 시작 상태로 변경합니다."""
-
     def __init__(self, uow: UnitOfWork):
         self.uow: Final = uow
 
     async def handle(self, event: SearchJobCreated):
-        """이벤트가 발생하면, Job을 시작하고 SearchJobStarted 이벤트를 발행합니다."""
-        async with self.uow:
-            job = await self.uow.search_jobs.get(event.job_id)
-            if not job:
-                return
-            job.start()
-            await self.uow.commit()
+        with logger.contextualize(job_id=event.job_id):
+            logger.debug(f"Handling SearchJobCreated event for job {event.job_id}.")
+            logger.debug(event)
+
+            async with self.uow:
+                job = await self.uow.search_jobs.get(event.job_id)
+                if not job:
+                    logger.warning(f"Job {event.job_id} not found. Cannot start.")
+                    return
+                job.start()
+                await self.uow.commit()
+
+            logger.info(f"SearchJob {job.job_id} started.")
 
 
 class SearchJobStartedHandler:
-    """SearchJobStarted 이벤트를 처리하여 개별 Task 실행을 위임합니다."""
-
     def __init__(self, uow: UnitOfWork, bus: MessageBus):
         self.uow: Final = uow
         self.bus: Final = bus
 
     async def handle(self, event: SearchJobStarted):
-        """이벤트가 발생하면, 각 태스크에 대한 커맨드를 발행합니다."""
-        async with self.uow:
-            job = await self.uow.search_jobs.get(event.job_id)
-            if not job:
-                return
-            for task in job.tasks:
-                await self.bus.handle(
-                    ExecuteSearchTaskCommand(job_id=job.job_id, task_id=task.task_id)
+        with logger.contextualize(job_id=event.job_id):
+            logger.debug(f"Handling SearchJobStarted event for job {event.job_id}.")
+            async with self.uow:
+                job = await self.uow.search_jobs.get(event.job_id)
+                if not job:
+                    logger.warning(
+                        f"Job {event.job_id} not found. Cannot dispatch tasks."
+                    )
+                    return
+
+                logger.info(
+                    f"Found {len(job.tasks)} tasks in job {job.job_id}. Dispatching commands concurrently..."
                 )
+                for task in job.tasks:
+                    await self.bus.handle(
+                        ExecuteSearchTaskCommand(
+                            job_id=job.job_id, task_id=task.task_id
+                        )
+                    )
+
+            logger.debug(f"Finished dispatching commands for job {event.job_id}.")
 
 
 class ExecuteSearchTaskCommandHandler:
-    """ExecuteSearchTaskCommand를 처리하여 개별 태스크를 실행합니다."""
-
     def __init__(self, uow: UnitOfWork, factory: PlatformServiceFactory):
         self.uow: Final = uow
         self.factory: Final = factory
 
     async def handle(self, command: ExecuteSearchTaskCommand):
-        """커맨드를 처리하여 실제 크롤링을 수행하고 결과를 저장합니다."""
-        async with self.uow:
-            job = await self.uow.search_jobs.get(command.job_id)
-            if not job:
-                return
-            task_to_execute = next(
-                (t for t in job.tasks if t.task_id == command.task_id), None
-            )
-            if not task_to_execute:
-                return
-
-            platform_service = await self.factory.get_service(task_to_execute.platform)
-
-            # 사용자 다운로드 폴더 하위에 체계적으로 결과 저장
-            output_dir = (
-                Path.home()
-                / "Downloads"
-                / "viral-reporter"
-                / task_to_execute.platform.value
-                / str(command.job_id)
-            )
-            output_dir.mkdir(parents=True, exist_ok=True)
+        with logger.contextualize(
+            job_id=str(command.job_id), task_id=str(command.task_id)
+        ):
+            logger.debug("Handling ExecuteSearchTaskCommand.")
 
             try:
-                result = await platform_service.search_and_find_posts(
-                    keyword=task_to_execute.keyword,
-                    posts_to_find=task_to_execute.blog_posts_to_find,
-                    output_dir=output_dir,
-                )
-                job.update_task_result(task_to_execute.task_id, result)
-            except Exception as e:
-                job.update_task_error(task_to_execute.task_id, str(e))
+                async with self.uow:
+                    job = await self.uow.search_jobs.get(command.job_id)
+                    if not job:
+                        logger.warning("Job not found. Aborting task.")
+                        return
+                    task = next(
+                        (t for t in job.tasks if t.task_id == command.task_id),
+                        None,
+                    )
+                    if not task:
+                        logger.warning("Task not found in job. Aborting.")
+                        return
 
-            await self.uow.search_jobs.add(job)
-            await self.uow.commit()
+                    urls_to_find = [p.url for p in task.blog_posts_to_find]
+                    logger.info(
+                        f"Executing search for keyword '{task.keyword.text}' with URLs: {urls_to_find}"
+                    )
+
+                    output_dir = (
+                        Path.home()
+                        / "Downloads"
+                        / "viral-reporter"
+                        / task.platform.value
+                        / str(command.job_id)
+                    )
+                    output_dir.mkdir(parents=True, exist_ok=True)
+
+                    platform_service = await self.factory.get_service(task.platform)
+                    result = await platform_service.search_and_find_posts(
+                        keyword=task.keyword,
+                        posts_to_find=task.blog_posts_to_find,
+                        output_dir=output_dir,
+                    )
+                    job.update_task_result(task.task_id, result)
+                    logger.info("Task completed successfully.")
+                    await self.uow.search_jobs.add(job)
+                    await self.uow.commit()
+
+            except Exception as e:
+                logger.exception("An unexpected error occurred during task execution.")
+                try:
+                    async with self.uow:
+                        job = await self.uow.search_jobs.get(command.job_id)
+                        if job:
+                            task = next(
+                                (t for t in job.tasks if t.task_id == command.task_id),
+                                None,
+                            )
+                            if task:
+                                job.update_task_error(task.task_id, str(e))
+                                await self.uow.search_jobs.add(job)
+                                await self.uow.commit()
+                except Exception as inner_e:
+                    logger.critical(
+                        f"Failed to update task status to ERROR after initial exception: {inner_e}"
+                    )
 
 
 class TaskCompletedHandler:
-    """TaskCompleted 이벤트를 처리하여 Job의 완료 여부를 체크합니다."""
-
     def __init__(self, uow: UnitOfWork):
         self.uow: Final = uow
 
     async def handle(self, event: TaskCompleted):
-        """모든 태스크가 완료되었는지 확인하고, 그렇다면 Job을 완료 처리합니다."""
-        async with self.uow:
-            job = await self.uow.search_jobs.get(event.job_id)
-            if not job:
-                return
-            job.check_if_completed()
-            await self.uow.commit()
+        with logger.contextualize(job_id=str(event.job_id), task_id=str(event.task_id)):
+            logger.debug(
+                f"Handling TaskCompleted event for task {event.task_id} in job {event.job_id}."
+            )
+            async with self.uow:
+                job = await self.uow.search_jobs.get(event.job_id)
+                if not job:
+                    logger.warning(
+                        f"Job {event.job_id} not found. Cannot check for completion."
+                    )
+                    return
+
+                is_completed_before = job.status == JobStatus.COMPLETED
+                job.check_if_completed()
+                is_completed_after = job.status == JobStatus.COMPLETED
+
+                if not is_completed_before and is_completed_after:
+                    logger.info(f"All tasks for job {job.job_id} are complete.")
+                else:
+                    pending_tasks = [
+                        t.task_id for t in job.tasks if t.status == TaskStatus.PENDING
+                    ]
+                    logger.debug(
+                        f"Job {job.job_id} not yet complete. {len(pending_tasks)} tasks still pending."
+                    )
+                await self.uow.commit()
 
 
 class JobCompletedHandler:
-    """JobCompleted 이벤트를 처리하여 Job의 완료 여부를 체크합니다."""
-
     def __init__(self, uow: UnitOfWork):
         self.uow: Final = uow
 
     async def handle(self, event: JobCompleted):
-        # TODO: UI 알림, 로깅 등 작업 수행
-        pass
+        with logger.contextualize(job_id=str(event.job_id)):
+            # UI 알림, 최종 리포트 생성 등 추가 작업 수행 가능
+            logger.info(f"Job {event.job_id} officially marked as completed.")
+            pass
 
 
 class GetJobResultQueryHandler:
-    """GetJobResultQuery를 처리하여 검색 결과를 DTO로 변환하여 반환합니다."""
-
     def __init__(self, uow: UnitOfWork):
         self.uow: Final = uow
 
     async def handle(self, query: GetJobResultQuery) -> JobResultDTO | None:
-        """쿼리를 처리하여 Job의 최종 결과를 DTO로 반환합니다."""
-        async with self.uow:
-            job = await self.uow.search_jobs.get(query.job_id)
-            if not job:
-                return None
+        with logger.contextualize(job_id=str(query.job_id)):
+            logger.debug(f"Handling GetJobResultQuery for job {query.job_id}.")
+            async with self.uow:
+                job = await self.uow.search_jobs.get(query.job_id)
+                if not job:
+                    logger.warning(f"Job {query.job_id} not found in query handler.")
+                    return None
 
-            task_dtos = []
-            for task in job.tasks:
-                found_urls = []
-                if task.result and task.result.found_posts:
-                    found_urls = [post.url for post in task.result.found_posts]
-
-                screenshot_path = None
-                if task.result and task.result.screenshot:
-                    screenshot_path = str(task.result.screenshot.file_path)
-
-                task_dtos.append(
+                task_dtos = [
                     TaskResultDTO(
                         keyword=task.keyword.text,
                         status=task.status.value,
-                        found_post_urls=found_urls,
-                        screenshot_path=screenshot_path,
+                        found_post_urls=[
+                            post.url for post in task.result.found_posts if task.result
+                        ],
+                        screenshot_path=str(task.result.screenshot.file_path)
+                        if task.result and task.result.screenshot
+                        else None,
                         error_message=task.error_message,
                     )
+                    for task in job.tasks
+                ]
+                logger.debug(
+                    f"Returning DTO for job {query.job_id} with {len(task_dtos)} tasks."
                 )
-
-            return JobResultDTO(
-                job_id=job.job_id,
-                status=job.status.value,
-                tasks=task_dtos,
-            )
+                return JobResultDTO(
+                    job_id=job.job_id,
+                    status=job.status.value,
+                    tasks=task_dtos,
+                )

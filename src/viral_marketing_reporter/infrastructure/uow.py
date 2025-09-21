@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import override
 
+from loguru import logger
+
 from viral_marketing_reporter.domain.message_bus import MessageBus
 from viral_marketing_reporter.domain.uow import UnitOfWork
 from viral_marketing_reporter.infrastructure.repositories import (
@@ -27,10 +29,12 @@ class InMemoryUnitOfWork(UnitOfWork):
     @override
     async def commit(self):
         for job in self.search_jobs.seen:
-            for event in job.pull_events():
+            events = job.pull_events()
+            for event in events:
+                logger.debug(f"Dispatching event: {event}")
                 await self.bus.handle(event)
 
     @override
     async def rollback(self):
-        # 인메모리에서는 특별히 롤백할 것이 없음
         pass
+

@@ -86,6 +86,13 @@ class PlaywrightNaverBlogService(SearchPlatformService):
 
         top_10_posts = await search_page.get_top_10_posts()
 
+        if not top_10_posts:
+            logger.error(f"{keyword.text}에 대해서 포스트를 찾을 수 없습니다.")
+            logger.error(await search_page.page.content())
+            await search_page.page.screenshot(
+                path=(output_dir / f"{keyword}_error.png")
+            )
+
         # 각 포스트 요소에 대해 일치하는 Post를 찾는 비동기 작업을 생성합니다.
         tasks = [
             self._get_matching_post_if_found(post_element, posts_to_find)
