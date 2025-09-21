@@ -1,51 +1,40 @@
-import asyncio
-import uuid
+from __future__ import annotations
+
 from pathlib import Path
+from typing import TYPE_CHECKING, Final
 
-from loguru import logger
-
-from viral_marketing_reporter.application.commands import StartSearchCommand
+from viral_marketing_reporter.application.commands import (
+    CreateSearchCommand,
+    ExecuteSearchTaskCommand,
+)
+from viral_marketing_reporter.domain.events import (
+    SearchJobCreated,
+    SearchJobStarted,
+    TaskCompleted,
+)
+from viral_marketing_reporter.domain.message_bus import MessageBus
 from viral_marketing_reporter.domain.model import (
     Keyword,
     Post,
     SearchJob,
-    SearchResult,
     SearchTask,
 )
-from viral_marketing_reporter.domain.repositories import SearchJobRepository
 from viral_marketing_reporter.infrastructure.platforms.factory import (
     PlatformServiceFactory,
 )
 
-# TODO: OS별 사용자 다운로드 폴더를 찾는 로직 추가
-DEFAULT_DOWNLOAD_PATH = Path.home() / "Downloads"
+if TYPE_CHECKING:
+    from viral_marketing_reporter.domain.uow import UnitOfWork
 
 
-class SearchCommandHandler:
-    repository: SearchJobRepository
-    factory: PlatformServiceFactory
+class CreateSearchCommandHandler:
+    """StartSearchCommand를 처리하여 SearchJob을 생성하고 저장합니다."""
 
-    def __init__(
-        self, repository: SearchJobRepository, factory: PlatformServiceFactory
-    ):
-        self.repository = repository
-        self.factory = factory
+    def __init__(self, uow: UnitOfWork):
+        self.uow: Final = uow
 
-    async def _execute_task(
-        self, task: SearchTask, output_dir: Path
-    ) -> tuple[uuid.UUID, SearchResult]:
-        with logger.contextualize(task_id=str(task.task_id)):
-            logger.info(f"'{task.keyword.text}' 키워드에 대한 작업 시작")
-            platform_service = await self.factory.get_service(task.platform)
-            result = await platform_service.search_and_find_posts(
-                keyword=task.keyword,
-                posts_to_find=task.blog_posts_to_find,
-                output_dir=output_dir,
-            )
-            logger.info(f"'{task.keyword.text}' 키워드에 대한 작업 종료")
-            return task.task_id, result
-
-    async def handle(self, command: StartSearchCommand):
+    async def handle(self, command: CreateSearchCommand):
+        """커맨드를 처리합니다."""
         tasks = [
             SearchTask(
                 keyword=Keyword(text=task_dto.keyword),
@@ -54,35 +43,97 @@ class SearchCommandHandler:
             )
             for task_dto in command.tasks
         ]
-        search_job = SearchJob(tasks=tasks)
+        async with self.uow:
+            job = SearchJob.create(job_id=command.job_id, tasks=tasks)
+            await self.uow.search_jobs.save(job)
+            await self.uow.commit()
 
-        with logger.contextualize(job_id=str(search_job.job_id)):
-            logger.info("새로운 검색 작업 시작", event_name="new_search_job_started")
-            search_job.start()
 
-            output_dir = DEFAULT_DOWNLOAD_PATH / str(search_job.job_id)
+class SearchJobCreatedHandler:
+    """SearchJobCreated 이벤트를 처리하여 Job을 시작 상태로 변경합니다."""
 
-            async def run_and_capture_result(
-                task: SearchTask,
-            ) -> tuple[uuid.UUID, SearchResult | BaseException]:
-                """_execute_task를 안전하게 실행하고 예외 발생 시에도 task_id를 함께 반환합니다."""
-                try:
-                    # _execute_task는 성공 시 (task_id, result) 튜플을 반환합니다.
-                    _, result = await self._execute_task(task, output_dir)
-                    return task.task_id, result
-                except Exception as e:
-                    return task.task_id, e
+    def __init__(self, uow: UnitOfWork):
+        self.uow: Final = uow
 
-            async_tasks = [run_and_capture_result(task) for task in search_job.tasks]
-            results = await asyncio.gather(*async_tasks)
+    async def handle(self, event: SearchJobCreated):
+        """이벤트가 발생하면, Job을 시작하고 SearchJobStarted 이벤트를 발행합니다."""
+        async with self.uow:
+            job = await self.uow.search_jobs.get(event.job_id)
+            if not job:
+                return
+            job.start()
+            await self.uow.commit()
 
-            for task_id, result in results:
-                if isinstance(result, BaseException):
-                    logger.error(f"태스크(id:{task_id}) 처리 중 예외 발생: {result}")
-                    search_job.update_task_error(task_id)
-                else:
-                    search_job.update_task_result(task_id, result)
 
-            logger.info("작업 종료", event_name="new_search_job_finished")
+class SearchJobStartedHandler:
+    """SearchJobStarted 이벤트를 처리하여 개별 Task 실행을 위임합니다."""
 
-        await self.repository.save(search_job)
+    def __init__(self, uow: UnitOfWork, bus: MessageBus):
+        self.uow: Final = uow
+        self.bus: Final = bus
+
+    async def handle(self, event: SearchJobStarted):
+        """이벤트가 발생하면, 각 태스크에 대한 커맨드를 발행합니다."""
+        async with self.uow:
+            job = await self.uow.search_jobs.get(event.job_id)
+            if not job:
+                return
+            for task in job.tasks:
+                await self.bus.handle(
+                    ExecuteSearchTaskCommand(job_id=job.job_id, task_id=task.task_id)
+                )
+
+
+class ExecuteSearchTaskCommandHandler:
+    """ExecuteSearchTaskCommand를 처리하여 개별 태스크를 실행합니다."""
+
+    def __init__(self, uow: UnitOfWork, factory: PlatformServiceFactory):
+        self.uow: Final = uow
+        self.factory: Final = factory
+
+    async def handle(self, command: ExecuteSearchTaskCommand):
+        """커맨드를 처리하여 실제 크롤링을 수행하고 결과를 저장합니다."""
+        async with self.uow:
+            job = await self.uow.search_jobs.get(command.job_id)
+            if not job:
+                return
+            task_to_execute = next(
+                (t for t in job.tasks if t.task_id == command.task_id), None
+            )
+            if not task_to_execute:
+                return
+
+            platform_service = await self.factory.get_service(task_to_execute.platform)
+            # TODO: output_dir을 설정 등에서 받아오도록 수정 필요
+            output_dir = Path("/tmp/screenshots")
+            output_dir.mkdir(exist_ok=True)
+
+            try:
+                result = await platform_service.search_and_find_posts(
+                    keyword=task_to_execute.keyword,
+                    posts_to_find=task_to_execute.blog_posts_to_find,
+                    output_dir=output_dir,
+                )
+                job.update_task_result(task_to_execute.task_id, result)
+            except Exception:
+                job.update_task_error(task_to_execute.task_id)
+
+            await self.uow.search_jobs.save(job)
+            await self.uow.commit()
+
+
+class TaskCompletedHandler:
+    """TaskCompleted 이벤트를 처리하여 Job의 완료 여부를 체크합니다."""
+
+    def __init__(self, uow: UnitOfWork):
+        self.uow: Final = uow
+
+    async def handle(self, event: TaskCompleted):
+        """모든 태스크가 완료되었는지 확인하고, 그렇다면 Job을 완료 처리합니다."""
+        async with self.uow:
+            job = await self.uow.search_jobs.get(event.job_id)
+            if not job:
+                return
+            job.check_if_completed()
+            await self.uow.commit()
+

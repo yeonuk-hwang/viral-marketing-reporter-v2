@@ -7,5 +7,7 @@
       "root": "."
     }
   ],
-  "reportUnusedCallResult": "none"
+  "reportUnusedCallResult": "none",
+  "reportExplicitAny": "none"
 }
+

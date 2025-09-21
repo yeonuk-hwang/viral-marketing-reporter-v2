@@ -1,8 +1,7 @@
-
 from __future__ import annotations
 
 from types import TracebackType
-from typing import Type
+from typing import Type, override
 
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -22,11 +21,13 @@ class SqlAlchemyUnitOfWork(UnitOfWork):
     def __init__(self, session_factory: sessionmaker[Session]):
         self.session_factory = session_factory
 
+    @override
     async def __aenter__(self) -> SqlAlchemyUnitOfWork:
         self.session: Session = self.session_factory()
         self.search_jobs: SearchJobRepository = SqliteSearchJobRepository(self.session)
         return self
 
+    @override
     async def __aexit__(
         self,
         exc_type: Type[BaseException] | None,
@@ -37,11 +38,14 @@ class SqlAlchemyUnitOfWork(UnitOfWork):
             await self.rollback()
         self.session.close()
 
+    @override
     async def commit(self):
         """DB 변경사항을 커밋하고, 수집된 도메인 이벤트를 발행합니다."""
         # self.session.dirty를 사용하여 변경된 애그리거트를 찾습니다.
-        dirty_aggregates = [obj for obj in self.session.dirty if isinstance(obj, SearchJob)]
-        
+        dirty_aggregates = [
+            obj for obj in self.session.dirty if isinstance(obj, SearchJob)
+        ]
+
         all_events: list[Event] = []
         for aggregate in dirty_aggregates:
             all_events.extend(aggregate.pull_events())
@@ -52,5 +56,6 @@ class SqlAlchemyUnitOfWork(UnitOfWork):
         for event in all_events:
             await message_bus.handle(event)
 
+    @override
     async def rollback(self):
         self.session.rollback()

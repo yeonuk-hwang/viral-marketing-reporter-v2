@@ -1,3 +1,4 @@
+import uuid
 from dataclasses import dataclass
 
 from viral_marketing_reporter.domain.model import Platform
@@ -19,7 +20,16 @@ class TaskDTO:
 
 
 @dataclass(frozen=True)
-class StartSearchCommand(Command):
-    """검색 시작을 요청하는 커맨드"""
+class CreateSearchCommand(Command):
+    """검색 생성을 요청하는 커맨드"""
 
+    job_id: uuid.UUID
     tasks: list[TaskDTO]
+
+
+@dataclass(frozen=True)
+class ExecuteSearchTaskCommand(Command):
+    """개별 검색 태스크 실행을 요청하는 커맨드"""
+
+    job_id: uuid.UUID
+    task_id: uuid.UUID

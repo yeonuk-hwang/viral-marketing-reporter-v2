@@ -5,7 +5,13 @@ from enum import Enum
 from pathlib import Path
 from typing import override
 
-from viral_marketing_reporter.domain.events import Event, SearchJobCreated, TaskCompleted
+from viral_marketing_reporter.domain.events import (
+    Event,
+    JobCompleted,
+    SearchJobCreated,
+    SearchJobStarted,
+    TaskCompleted,
+)
 
 # --- Value Objects ---
 
@@ -105,11 +111,11 @@ class SearchJob:
     events: list[Event] = field(default_factory=list, init=False)
 
     @staticmethod
-    def create(tasks: list[SearchTask]) -> "SearchJob":
+    def create(job_id: uuid.UUID, tasks: list[SearchTask]) -> "SearchJob":
         """새로운 SearchJob을 생성하고 이벤트를 기록합니다."""
-        job = SearchJob(tasks=tasks)
+        job = SearchJob(job_id=job_id, tasks=tasks)
         job.events.append(
-            SearchJobCreated(job_id=str(job.job_id), created_at=job.created_at)
+            SearchJobCreated(job_id=job.job_id, created_at=job.created_at)
         )
         return job
 
@@ -120,10 +126,11 @@ class SearchJob:
         return pulled_events
 
     def start(self):
-        """작업을 시작합니다."""
+        """작업을 시작하고 이벤트를 기록합니다."""
         if self.status != JobStatus.PENDING:
             raise ValueError("이미 시작되었거나 완료된 작업입니다.")
         self.status = JobStatus.RUNNING
+        self.events.append(SearchJobStarted(job_id=self.job_id))
 
     def update_task_result(self, task_id: uuid.UUID, result: SearchResult):
         """완료된 태스크의 결과를 업데이트하고 이벤트를 기록합니다."""
@@ -132,12 +139,9 @@ class SearchJob:
             task.update_result(result)
             self.events.append(
                 TaskCompleted(
-                    task_id=str(task.task_id),
-                    job_id=str(self.job_id),
-                    status=task.status.value,
+                    task_id=task.task_id, job_id=self.job_id, status=task.status.value
                 )
             )
-            self._check_if_completed()
 
     def update_task_error(self, task_id: uuid.UUID):
         """에러가 발생한 태스크의 상태를 업데이트하고 이벤트를 기록합니다."""
@@ -146,20 +150,20 @@ class SearchJob:
             task.mark_as_error()
             self.events.append(
                 TaskCompleted(
-                    task_id=str(task.task_id),
-                    job_id=str(self.job_id),
-                    status=task.status.value,
+                    task_id=task.task_id, job_id=self.job_id, status=task.status.value
                 )
             )
-            self._check_if_completed()
 
     def _find_task_by_id(self, task_id: uuid.UUID) -> SearchTask | None:
         return next((t for t in self.tasks if t.task_id == task_id), None)
 
-    def _check_if_completed(self):
-        """모든 태스크가 끝났는지 확인하고 작업 전체 상태를 업데이트합니다."""
-        if all(t.status != TaskStatus.PENDING for t in self.tasks):
+    def check_if_completed(self):
+        """모든 태스크가 끝났는지 확인하고, 처음 완료되는 시점이라면 이벤트를 발행합니다."""
+        if self.status != JobStatus.COMPLETED and all(
+            t.status != TaskStatus.PENDING for t in self.tasks
+        ):
             self.status = JobStatus.COMPLETED
+            self.events.append(JobCompleted(job_id=self.job_id))
 
     @override
     def __eq__(self, other: object):
