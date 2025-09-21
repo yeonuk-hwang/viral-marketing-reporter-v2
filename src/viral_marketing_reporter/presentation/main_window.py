@@ -219,7 +219,10 @@ class MainWindow(QMainWindow):
             f"Populating UI with results for {len(result_dto.tasks)} tasks."
         )
         self.results_dialog = ResultsDialog(
-            result_dto, self, elapsed_seconds=elapsed_seconds
+            result_dto,
+            self,
+            elapsed_seconds=elapsed_seconds,
+            total_tasks=self.total_tasks,
         )
         self.results_dialog.exec()
         logger.info(f"Search job {event.job_id} completed and results shown.")
