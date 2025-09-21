@@ -5,6 +5,8 @@ from enum import Enum
 from pathlib import Path
 from typing import override
 
+from viral_marketing_reporter.domain.events import Event, SearchJobCreated, TaskCompleted
+
 # --- Value Objects ---
 
 
@@ -100,6 +102,22 @@ class SearchJob:
     status: JobStatus = JobStatus.PENDING
     created_at: datetime = field(default_factory=datetime.now)
     job_id: uuid.UUID = field(default_factory=uuid.uuid4)
+    events: list[Event] = field(default_factory=list, init=False)
+
+    @staticmethod
+    def create(tasks: list[SearchTask]) -> "SearchJob":
+        """새로운 SearchJob을 생성하고 이벤트를 기록합니다."""
+        job = SearchJob(tasks=tasks)
+        job.events.append(
+            SearchJobCreated(job_id=str(job.job_id), created_at=job.created_at)
+        )
+        return job
+
+    def pull_events(self) -> list[Event]:
+        """수집된 이벤트를 반환하고 내부 리스트를 비웁니다."""
+        pulled_events = self.events[:]
+        self.events.clear()
+        return pulled_events
 
     def start(self):
         """작업을 시작합니다."""
@@ -108,17 +126,31 @@ class SearchJob:
         self.status = JobStatus.RUNNING
 
     def update_task_result(self, task_id: uuid.UUID, result: SearchResult):
-        """완료된 태스크의 결과를 업데이트합니다."""
+        """완료된 태스크의 결과를 업데이트하고 이벤트를 기록합니다."""
         task = self._find_task_by_id(task_id)
         if task:
             task.update_result(result)
+            self.events.append(
+                TaskCompleted(
+                    task_id=str(task.task_id),
+                    job_id=str(self.job_id),
+                    status=task.status.value,
+                )
+            )
             self._check_if_completed()
 
     def update_task_error(self, task_id: uuid.UUID):
-        """에러가 발생한 태스크의 상태를 업데이트합니다."""
+        """에러가 발생한 태스크의 상태를 업데이트하고 이벤트를 기록합니다."""
         task = self._find_task_by_id(task_id)
         if task:
             task.mark_as_error()
+            self.events.append(
+                TaskCompleted(
+                    task_id=str(task.task_id),
+                    job_id=str(self.job_id),
+                    status=task.status.value,
+                )
+            )
             self._check_if_completed()
 
     def _find_task_by_id(self, task_id: uuid.UUID) -> SearchTask | None:
