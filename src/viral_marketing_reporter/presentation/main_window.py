@@ -117,14 +117,15 @@ class MainWindow(QMainWindow):
         self.current_job_id = uuid.uuid4()
         command = CreateSearchCommand(job_id=self.current_job_id, tasks=task_dtos)
 
+        # 검색 시작 전에 UI 상태를 '검색 중'으로 변경합니다.
+        self.run_button.setText("검색 중...")
+        self.run_button.setEnabled(False)
+        logger.debug("UI state updated to 'searching'.")
+
         logger.info(
             f"Creating search job {self.current_job_id} with {len(task_dtos)} tasks for {len(urls)} URLs."
         )
         await self.message_bus.handle(command)
-
-        self.run_button.setText("검색 중...")
-        self.run_button.setEnabled(False)
-        logger.debug("UI state updated to 'searching'.")
 
     @asyncSlot()
     async def handle_job_completed(self, event: JobCompleted):
