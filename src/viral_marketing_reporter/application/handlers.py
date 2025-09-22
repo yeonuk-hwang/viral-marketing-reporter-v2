@@ -242,8 +242,10 @@ class GetJobResultQueryHandler:
                         keyword=task.keyword.text,
                         status=task.status.value,
                         found_post_urls=[
-                            post.url for post in task.result.found_posts if task.result
-                        ],
+                            post.url for post in task.result.found_posts
+                        ]
+                        if task.result
+                        else [],
                         screenshot_path=str(task.result.screenshot.file_path)
                         if task.result and task.result.screenshot
                         else None,

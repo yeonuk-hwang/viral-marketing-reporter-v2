@@ -47,7 +47,7 @@ class NaverBlogSearchPage:
         last_post = top_10_posts[-1]
 
         await last_post.scroll_into_view_if_needed()
-        await self.page.wait_for_load_state("networkidle")
+        await self.page.wait_for_load_state("networkidle", timeout=60 * 1000)
         await self.page.evaluate("window.scrollTo(0, 0)")
 
         main_pack_box = await self.main_pack_container.bounding_box()

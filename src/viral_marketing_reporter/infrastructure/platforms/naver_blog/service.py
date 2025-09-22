@@ -96,6 +96,8 @@ class PlaywrightNaverBlogService(SearchPlatformService):
     async def search_and_find_posts(
         self, keyword: Keyword, posts_to_find: list[Post], output_dir: Path
     ) -> SearchResult:
+        from playwright.async_api import TimeoutError
+
         try:
             search_page = NaverBlogSearchPage(self.page)
             await search_page.goto(keyword.text)
@@ -153,5 +155,12 @@ class PlaywrightNaverBlogService(SearchPlatformService):
                 if screenshot_path
                 else None,
             )
+        except TimeoutError as e:
+            logger.error(
+                f"페이지 로드 시간 초과: {keyword.text}",
+                event_name="page_load_timeout",
+                keyword=keyword.text,
+            )
+            raise e
         finally:
             await self.page.close()
