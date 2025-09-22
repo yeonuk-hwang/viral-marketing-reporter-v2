@@ -35,9 +35,17 @@ jobs:
       - name: Build with PyInstaller
         run: uv run pyinstaller --noconfirm --onedir --name viral-marketing-reporter --windowed ./src/viral_marketing_reporter/main.py
 
+      - name: Package application for release
+        shell: pwsh
+        run: |
+          $VERSION = "${{ github.ref_name }}"
+          $ZIP_FILENAME = "ViralMarketingReporter-windows-${VERSION}.zip"
+          Compress-Archive -Path dist/viral-marketing-reporter -DestinationPath $ZIP_FILENAME
+          echo "RELEASE_ZIP_PATH=$ZIP_FILENAME" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          files: dist/viral-marketing-reporter
+          files: ${{env.RELEASE_ZIP_PATH}}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
