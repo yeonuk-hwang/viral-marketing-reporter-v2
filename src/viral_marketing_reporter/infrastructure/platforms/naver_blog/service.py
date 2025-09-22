@@ -68,7 +68,8 @@ class PlaywrightNaverBlogService(SearchPlatformService):
             return set()
 
         # 네이버 블로그 게시물 URL 패턴과 일치하는 것만 필터링합니다.
-        blog_post_pattern = re.compile(r"^https://blog\.naver\.com/[^/]+/\d+$")
+        blog_post_pattern = re.compile(r"^https://(?:m\.)?blog\.naver\.com/[^/]+/\d+$")
+
         valid_blog_urls = [
             url for url in post_urls_to_check if blog_post_pattern.match(url)
         ]
