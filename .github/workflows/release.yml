@@ -33,11 +33,11 @@ jobs:
           PLAYWRIGHT_BROWSERS_PATH: 0
 
       - name: Build with PyInstaller
-        run: uv run pyinstaller --noconfirm --onefile --name viral-marketing-reporter --windowed ./src/viral_marketing_reporter/main.py
+        run: uv run pyinstaller --noconfirm --onedir --name viral-marketing-reporter --windowed ./src/viral_marketing_reporter/main.py
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          files: dist/viral-marketing-reporter.exe
+          files: dist/viral-marketing-reporter
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
