@@ -156,7 +156,7 @@ class PlaywrightNaverBlogService(SearchPlatformService):
                 else None,
             )
         except TimeoutError as e:
-            logger.error(
+            logger.exception(
                 f"페이지 로드 시간 초과: {keyword.text}",
                 event_name="page_load_timeout",
                 keyword=keyword.text,
