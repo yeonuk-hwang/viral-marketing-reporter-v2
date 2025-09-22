@@ -28,7 +28,7 @@ jobs:
         run: uv sync --frozen
 
       - name: Build with PyInstaller
-        run: uv run pyinstaller --noconfirm --onefile --name viral-marketing-reporter /src/viral_marketing_reporter/main.py
+        run: uv run pyinstaller --noconfirm --onefile --name viral-marketing-reporter ./src/viral_marketing_reporter/main.py
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
