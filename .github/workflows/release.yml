@@ -28,9 +28,7 @@ jobs:
         run: uv sync --dev
 
       - name: Install Playwright Browsers
-        run: uv run playwright install --with-deps chromium
-        env:
-          PLAYWRIGHT_BROWSERS_PATH: 0
+        run: PLAYWRIGHT_BROWSERS_PATH=0 uv run playwright install chromium
 
       - name: Build with PyInstaller
         run: uv run pyinstaller --name ViralMarketingReporter --noconfirm --clean --windowed --onedir src/viral_marketing_reporter/main.py
