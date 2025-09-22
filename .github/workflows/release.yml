@@ -38,6 +38,6 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          files: dist/viral-marketing-reporter
+          files: dist/viral-marketing-reporter.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
