@@ -13,33 +13,6 @@ from playwright.async_api import (
     async_playwright,
 )
 
-from .exceptions import ChromeNotFoundException
-
-
-def get_chrome_executable_path() -> str:
-    """
-    Finds the path to the Google Chrome executable on the current OS.
-    Raises ChromeNotFoundException if Chrome is not found.
-    """
-    if sys.platform == "darwin":  # macOS
-        paths = ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"]
-    elif sys.platform == "win32":  # Windows
-        paths = [
-            "C:/Program Files/Google/Chrome/Application/chrome.exe",
-            "C:/Program Files (x86)/Google/Chrome/Application/chrome.exe",
-        ]
-    else:
-        paths = []
-
-    for path in paths:
-        if Path(path).exists():
-            return path
-
-    raise ChromeNotFoundException(
-        "Google Chrome is not installed in a standard location. "
-        "Please install Google Chrome to use this application."
-    )
-
 
 class ApplicationContext:
     """애플리케이션의 브라우저 리소스를 관리합니다."""
