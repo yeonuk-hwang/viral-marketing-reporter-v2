@@ -14,6 +14,7 @@ class Command:
 class TaskDTO:
     """UI에서 전달되는 개별 작업 데이터"""
 
+    index: int
     keyword: str
     urls: list[str]
     platform: Platform

@@ -38,7 +38,9 @@ class NaverBlogSearchPage:
         """주어진 요소에 빨간색 테두리를 적용합니다."""
         await element.evaluate('(element) => (element.style.outline = "3px solid red")')
 
-    async def take_screenshot_of_results(self, keyword: str, output_dir: Path) -> Path:
+    async def take_screenshot_of_results(
+        self, index: int, keyword: str, output_dir: Path
+    ) -> Path:
         """페이지 상단부터 마지막 포스트까지의 영역을 스크린샷으로 찍고 파일 경로를 반환합니다."""
         top_10_posts = await self.get_top_10_posts()
         if not top_10_posts:
@@ -82,7 +84,7 @@ class NaverBlogSearchPage:
         }
 
         output_dir.mkdir(parents=True, exist_ok=True)
-        file_name = f"{keyword.replace(' ', '_')}.png"
+        file_name = f"{index}_{keyword.replace(' ', '_')}.png"
         screenshot_path = output_dir / file_name
 
         await self.page.screenshot(path=screenshot_path, clip=clip)

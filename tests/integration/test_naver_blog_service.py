@@ -37,6 +37,7 @@ async def test_finds_specific_posts_from_html_fixture(
 ):
     """저장된 HTML 파일을 이용해 서비스가 포스트를 정확히 찾는지 테스트합니다."""
     output_dir = SCREENSHOT_DIR
+    index = 1
     keyword = Keyword(text="식사대용 쉐이크")
     posts_to_find = [
         Post(url="https://m.blog.naver.com/ghzigc3833z7/223918882395"),
@@ -49,7 +50,7 @@ async def test_finds_specific_posts_from_html_fixture(
         "https://blog.naver.com/yjn1221/223983155229",
         "https://blog.naver.com/jiyea_junjin/223908006151",
     }
-    expected_screenshot_path = output_dir / "식사대용_쉐이크.png"
+    expected_screenshot_path = output_dir / "1_식사대용_쉐이크.png"
 
     search_url_pattern = re.compile(r"https://search\.naver\.com/search\.naver\?.*")
 
@@ -62,7 +63,10 @@ async def test_finds_specific_posts_from_html_fixture(
 
     service = PlaywrightNaverBlogService(page=page)
     result = await service.search_and_find_posts(
-        keyword=keyword, posts_to_find=posts_to_find, output_dir=output_dir
+        index=index,
+        keyword=keyword,
+        posts_to_find=posts_to_find,
+        output_dir=output_dir,
     )
 
     assert result is not None
@@ -94,7 +98,7 @@ async def test_no_results_found(
 
     service = PlaywrightNaverBlogService(page=page)
     result = await service.search_and_find_posts(
-        keyword=keyword, posts_to_find=posts_to_find, output_dir=output_dir
+        index=1, keyword=keyword, posts_to_find=posts_to_find, output_dir=output_dir
     )
 
     assert result is not None
@@ -120,7 +124,7 @@ async def test_less_than_10_results_found(
         "https://blog.naver.com/jeremiahjun/223993755718",
         "https://blog.naver.com/bkpark777/223944594259",
     }
-    expected_screenshot_path = output_dir / "playwright_동시성_문제.png"
+    expected_screenshot_path = output_dir / "1_playwright_동시성_문제.png"
 
     search_url_pattern = re.compile(r"https://search\.naver\.com/search\.naver\?.*")
 
@@ -134,7 +138,10 @@ async def test_less_than_10_results_found(
 
     service = PlaywrightNaverBlogService(page=page)
     result = await service.search_and_find_posts(
-        keyword=keyword, posts_to_find=posts_to_find, output_dir=output_dir
+        index=1,
+        keyword=keyword,
+        posts_to_find=posts_to_find,
+        output_dir=output_dir,
     )
 
     assert result is not None

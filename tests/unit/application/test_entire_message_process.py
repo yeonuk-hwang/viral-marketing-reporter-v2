@@ -89,7 +89,7 @@ async def test_full_process_manager_flow(mocker: MockerFixture):
     await bus.handle(
         CreateSearchCommand(
             job_id=job_id,
-            tasks=[TaskDTO(keyword="k1", urls=[], platform=Platform.NAVER_BLOG)],
+            tasks=[TaskDTO(index=1, keyword="k1", urls=[], platform=Platform.NAVER_BLOG)],
         )
     )
 
@@ -144,7 +144,7 @@ async def test_full_process_manager_flow_with_in_memory_bus(mocker: MockerFixtur
     await bus.handle(
         CreateSearchCommand(
             job_id=job_id,
-            tasks=[TaskDTO(keyword="k1", urls=[], platform=Platform.NAVER_BLOG)],
+            tasks=[TaskDTO(index=1, keyword="k1", urls=[], platform=Platform.NAVER_BLOG)],
         )
     )
 

@@ -8,14 +8,14 @@ from PySide6.QtGui import QCloseEvent, QFont
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
-    QHeaderView,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QMainWindow,
     QProgressBar,
     QPushButton,
-    QSpacerItem,
     QSizePolicy,
+    QSpacerItem,
     QVBoxLayout,
     QWidget,
 )
@@ -152,14 +152,13 @@ class MainWindow(QMainWindow):
             if u_item and u_item.text():
                 urls.append(u_item.text().strip())
 
-        keywords, urls = sorted(list(set(keywords))), sorted(list(set(urls)))
         if not keywords or not urls:
             logger.warning("No valid keywords or URLs found.")
             return
 
         task_dtos = [
-            TaskDTO(keyword=k, urls=urls, platform=Platform.NAVER_BLOG)
-            for k in keywords
+            TaskDTO(index=i + 1, keyword=k, urls=urls, platform=Platform.NAVER_BLOG)
+            for i, k in enumerate(keywords)
         ]
 
         self.total_tasks = len(task_dtos)
@@ -215,9 +214,7 @@ class MainWindow(QMainWindow):
             logger.error(f"Could not retrieve results for job {event.job_id}.")
             return
 
-        logger.debug(
-            f"Populating UI with results for {len(result_dto.tasks)} tasks."
-        )
+        logger.debug(f"Populating UI with results for {len(result_dto.tasks)} tasks.")
         self.results_dialog = ResultsDialog(
             result_dto,
             self,

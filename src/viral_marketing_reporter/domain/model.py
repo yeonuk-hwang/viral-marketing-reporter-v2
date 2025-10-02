@@ -73,6 +73,7 @@ class JobStatus(Enum):
 class SearchTask:
     """하나의 키워드에 대한 검색 작업을 나타내는 Entity"""
 
+    index: int
     keyword: Keyword
     blog_posts_to_find: list[Post]
     platform: Platform

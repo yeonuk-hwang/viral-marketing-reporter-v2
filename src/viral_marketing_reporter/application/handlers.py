@@ -47,18 +47,18 @@ class CreateSearchCommandHandler:
             logger.debug(f"Handling CreateSearchCommand for job {command.job_id}.")
             tasks = [
                 SearchTask(
-                    keyword=Keyword(text=task_dto.keyword),
-                    blog_posts_to_find=[Post(url=url) for url in task_dto.urls],
-                    platform=task_dto.platform,
+                    index=dto.index,
+                    keyword=Keyword(text=dto.keyword),
+                    blog_posts_to_find=[Post(url=url) for url in dto.urls],
+                    platform=dto.platform,
                 )
-                for task_dto in command.tasks
+                for dto in command.tasks
             ]
             async with self.uow:
                 job = SearchJob.create(job_id=command.job_id, tasks=tasks)
                 await self.uow.search_jobs.add(job)
                 await self.uow.commit()
             logger.info(f"SearchJob {job.job_id} created with {len(tasks)} tasks.")
-            logger.info(SearchJob)
 
 
 class SearchJobCreatedHandler:
@@ -151,6 +151,7 @@ class ExecuteSearchTaskCommandHandler:
 
                     platform_service = await self.factory.get_service(task.platform)
                     result = await platform_service.search_and_find_posts(
+                        index=task.index,
                         keyword=task.keyword,
                         posts_to_find=task.blog_posts_to_find,
                         output_dir=output_dir,

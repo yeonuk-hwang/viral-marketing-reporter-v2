@@ -94,7 +94,7 @@ class PlaywrightNaverBlogService(SearchPlatformService):
 
     @override
     async def search_and_find_posts(
-        self, keyword: Keyword, posts_to_find: list[Post], output_dir: Path
+        self, index: int, keyword: Keyword, posts_to_find: list[Post], output_dir: Path
     ) -> SearchResult:
         from playwright.async_api import TimeoutError
 
@@ -146,7 +146,7 @@ class PlaywrightNaverBlogService(SearchPlatformService):
                 await asyncio.gather(*highlight_tasks)
 
                 screenshot_path = await search_page.take_screenshot_of_results(
-                    keyword.text, output_dir
+                    index, keyword.text, output_dir
                 )
 
             return SearchResult(

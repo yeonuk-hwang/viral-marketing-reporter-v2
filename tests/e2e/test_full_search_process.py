@@ -40,7 +40,7 @@ async def test_e2e_full_process_with_mixed_results():
         / "viral-reporter"
         / "naver_blog"
         / str(job_id)
-        / (keyword.replace(" ", "_") + ".png")
+        / ("1_" + keyword.replace(" ", "_") + ".png")
     )
 
     # 2. Act: 실제 애플리케이션의 실행 흐름을 모방합니다.
@@ -57,7 +57,10 @@ async def test_e2e_full_process_with_mixed_results():
             job_id=job_id,
             tasks=[
                 TaskDTO(
-                    keyword=keyword, urls=urls_to_find, platform=Platform.NAVER_BLOG
+                    index=1,
+                    keyword=keyword,
+                    urls=urls_to_find,
+                    platform=Platform.NAVER_BLOG,
                 )
             ],
         )

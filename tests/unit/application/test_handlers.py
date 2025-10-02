@@ -85,9 +85,8 @@ async def test_create_search_command_handler_creates_job():
     job_id = uuid.uuid4()
     command = CreateSearchCommand(
         job_id=job_id,
-        tasks=[TaskDTO(keyword="k1", urls=[], platform=Platform.NAVER_BLOG)],
+        tasks=[TaskDTO(index=1, keyword="k1", urls=[], platform=Platform.NAVER_BLOG)],
     )
-
     await handler.handle(command)
 
     assert uow.committed is True
@@ -134,7 +133,10 @@ async def test_search_job_started_handler_dispatches_commands(mocker: MockerFixt
     bus.register_command(ExecuteSearchTaskCommand, DummyExecuteTaskHandler())  # pyright: ignore[reportUnknownMemberType]
 
     task = SearchTask(
-        keyword=Keyword(text="k1"), blog_posts_to_find=[], platform=Platform.NAVER_BLOG
+        index=1,
+        keyword=Keyword(text="k1"),
+        blog_posts_to_find=[],
+        platform=Platform.NAVER_BLOG,
     )
     job = SearchJob(tasks=[task])
     await uow.search_jobs.add(job)
@@ -160,7 +162,10 @@ async def test_execute_search_task_handler_updates_job(mocker: MockerFixture):
     factory.get_service.return_value = fake_service  # pyright: ignore[reportAny]
 
     task = SearchTask(
-        keyword=Keyword(text="k1"), blog_posts_to_find=[], platform=Platform.NAVER_BLOG
+        index=1,
+        keyword=Keyword(text="k1"),
+        blog_posts_to_find=[],
+        platform=Platform.NAVER_BLOG,
     )
     job = SearchJob(tasks=[task])
     await uow.search_jobs.add(job)
@@ -185,10 +190,16 @@ async def test_task_completed_handler_marks_job_as_completed():
     handler = TaskCompletedHandler(uow=uow)
 
     task1 = SearchTask(
-        keyword=Keyword(text="k1"), blog_posts_to_find=[], platform=Platform.NAVER_BLOG
+        index=1,
+        keyword=Keyword(text="k1"),
+        blog_posts_to_find=[],
+        platform=Platform.NAVER_BLOG,
     )
     task2 = SearchTask(
-        keyword=Keyword(text="k2"), blog_posts_to_find=[], platform=Platform.NAVER_BLOG
+        index=2,
+        keyword=Keyword(text="k2"),
+        blog_posts_to_find=[],
+        platform=Platform.NAVER_BLOG,
     )
     job = SearchJob(tasks=[task1, task2])
     job.update_task_result(task1.task_id, SearchResult(found_posts=[], screenshot=None))
