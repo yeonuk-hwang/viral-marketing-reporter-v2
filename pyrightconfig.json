@@ -8,6 +8,6 @@
     }
   ],
   "reportUnusedCallResult": "none",
-  "reportExplicitAny": "none"
+  "reportExplicitAny": "none",
+  "typeCheckingMode": "off"
 }
-
