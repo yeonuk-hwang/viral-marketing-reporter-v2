@@ -1,6 +1,6 @@
 [project]
 name = "viral-marketing-reporter"
-version = "1.0.7"
+version = "1.2.0"
 description = "Add your description here"
 readme = "README.md"
 authors = [{ name = "Yeonuk Hwang", email = "charlie.hwang131@gmail.com" }]
