@@ -72,6 +72,7 @@ async def run_app(app: QApplication):
 
     # 애플리케이션 초기화
     application = None
+    window = None
     try:
         # Bootstrap으로 모든 컴포넌트 초기화
         application = bootstrap.bootstrap(context)
@@ -91,9 +92,12 @@ async def run_app(app: QApplication):
         window.show()
 
         # 윈도우가 닫히거나 종료 신호를 받으면 종료
+        # Note: X 버튼을 누르면 closeEvent에서 os._exit(0)가 호출되어
+        # 이 코드에 도달하지 않고 프로세스가 즉시 종료됩니다.
         await shutdown_event.wait()
 
     finally:
+        # 이 블록은 Ctrl+C 등 다른 종료 시그널에서만 실행됩니다
         logger.info("Closing application resources...")
 
         # Factory cleanup (인증 서비스 등)

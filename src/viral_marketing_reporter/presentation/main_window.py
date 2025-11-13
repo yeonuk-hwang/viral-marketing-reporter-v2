@@ -1,4 +1,5 @@
 import asyncio
+import os
 import time
 import uuid
 
@@ -165,9 +166,18 @@ class MainWindow(QMainWindow):
         main_layout.addLayout(button_layout)
 
     def closeEvent(self, event: QCloseEvent) -> None:
-        logger.info("Close event received. Initiating shutdown.")
-        self.shutdown_event.set()
+        """Handle window close event.
+
+        Immediately terminates the process to avoid Qt thread cleanup issues.
+        This prevents the "QThread: Destroyed while thread is still running" error
+        that occurs when Qt tries to clean up qasync worker threads.
+        """
+        logger.info("Close event received. Terminating process...")
+        # Accept the event
         event.accept()
+        # Immediately exit the process without cleanup
+        # This avoids Qt trying to destroy threads that are still running
+        os._exit(0)
 
     @Slot()
     def clear_input_table(self):
