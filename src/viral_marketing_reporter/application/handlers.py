@@ -62,8 +62,9 @@ class CreateSearchCommandHandler:
 
 
 class SearchJobCreatedHandler:
-    def __init__(self, uow: UnitOfWork):
+    def __init__(self, uow: UnitOfWork, factory: PlatformServiceFactory):
         self.uow: Final = uow
+        self.factory: Final = factory
 
     async def handle(self, event: SearchJobCreated):
         with logger.contextualize(job_id=event.job_id):
@@ -75,6 +76,14 @@ class SearchJobCreatedHandler:
                 if not job:
                     logger.warning(f"Job {event.job_id} not found. Cannot start.")
                     return
+
+                # Job의 모든 플랫폼 추출
+                platforms = {task.platform for task in job.tasks}
+                logger.info(f"Job에 포함된 플랫폼: {[p.value for p in platforms]}")
+
+                # 필요한 플랫폼들의 인증 사전 준비
+                await self.factory.prepare_platforms(platforms)
+
                 job.start()
                 await self.uow.commit()
 

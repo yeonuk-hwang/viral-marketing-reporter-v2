@@ -20,3 +20,5 @@ tests/screenshots
 
 
 GEMINI.md
+.playwright-mcp
+.claude

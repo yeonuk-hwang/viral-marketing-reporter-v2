@@ -41,7 +41,7 @@ def bootstrap(
     # 이벤트 핸들러 등록
     bus.subscribe_to_event(
         SearchJobCreated,
-        handlers.SearchJobCreatedHandler(uow=uow),
+        handlers.SearchJobCreatedHandler(uow=uow, factory=factory),
     )
     bus.subscribe_to_event(
         SearchJobStarted,

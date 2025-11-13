@@ -22,6 +22,12 @@ from viral_marketing_reporter.infrastructure.platforms.factory import (
 from viral_marketing_reporter.infrastructure.platforms.naver_blog.service import (
     PlaywrightNaverBlogService,
 )
+from viral_marketing_reporter.infrastructure.platforms.instagram.service import (
+    PlaywrightInstagramService,
+)
+from viral_marketing_reporter.infrastructure.platforms.instagram.authentication_service import (
+    InstagramAuthenticationService,
+)
 from viral_marketing_reporter.infrastructure.uow import InMemoryUnitOfWork
 from viral_marketing_reporter.presentation.main_window import MainWindow
 
@@ -86,7 +92,15 @@ async def run_app(app: QApplication):
         bus = InMemoryMessageBus()
         uow = InMemoryUnitOfWork(bus)
         factory = PlatformServiceFactory(context)
+
+        # 플랫폼 서비스 등록
         factory.register_service(Platform.NAVER_BLOG, PlaywrightNaverBlogService)
+        factory.register_service(Platform.INSTAGRAM, PlaywrightInstagramService)
+
+        # 인증 서비스 등록 (인증이 필요한 플랫폼만)
+        instagram_auth = InstagramAuthenticationService(browser=context.browser)
+        factory.register_auth_service(Platform.INSTAGRAM, instagram_auth)
+
         bootstrap.bootstrap(uow=uow, bus=bus, factory=factory)
         query_handler = GetJobResultQueryHandler(uow=uow)
 
@@ -109,12 +123,26 @@ async def run_app(app: QApplication):
 
     finally:
         logger.info("Closing application resources...")
-        await context.__aexit__(None, None, None)
+
+        # Factory cleanup (인증 서비스 등)
+        if factory:
+            try:
+                await factory.cleanup()
+            except Exception as e:
+                logger.warning(f"Factory cleanup error: {e}")
+
+        # Application context cleanup
+        try:
+            await context.__aexit__(None, None, None)
+        except Exception as e:
+            logger.warning(f"Context cleanup error: {e}")
+
         logger.info("Resources closed. Application shutting down.")
         app.quit()
 
 
-if __name__ == "__main__":
+def main():
+    """메인 애플리케이션 진입점"""
     sys.excepthook = global_exception_handler
     try:
         app = QApplication(sys.argv)
@@ -126,3 +154,7 @@ if __name__ == "__main__":
     except Exception:
         logger.exception("Critical error during application startup")
         sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

@@ -48,6 +48,7 @@ class MainWindow(QMainWindow):
         self.completed_tasks: int = 0
         self.search_start_time: float | None = None
         self.results_dialog: ResultsDialog | None = None
+        self.current_platform: Platform | None = None  # 현재 실행 중인 플랫폼
 
         self.setWindowTitle("Viral Marketing Reporter")
         self.setGeometry(100, 100, 800, 600)
@@ -91,9 +92,38 @@ class MainWindow(QMainWindow):
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         main_layout.addWidget(title_label)
 
+        # Platform Selection Buttons
+        platform_button_layout = QHBoxLayout()
+        platform_button_layout.setSpacing(10)
+
         self.naver_blog_button = QPushButton("네이버 블로그 검색 시작")
-        self.naver_blog_button.clicked.connect(self.run_search)
-        main_layout.addWidget(self.naver_blog_button)
+        self.naver_blog_button.clicked.connect(lambda: self.run_search(Platform.NAVER_BLOG))
+        platform_button_layout.addWidget(self.naver_blog_button)
+
+        self.instagram_button = QPushButton("Instagram 검색 시작")
+        self.instagram_button.setStyleSheet(
+            """
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                    stop:0 #f09433, stop:0.25 #e6683c,
+                    stop:0.5 #dc2743, stop:0.75 #cc2366,
+                    stop:1 #bc1888);
+                color: white; border-radius: 5px;
+                padding: 10px; font-size: 16px; font-weight: bold;
+            }
+            QPushButton:hover {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                    stop:0 #d17a2a, stop:0.25 #c75933,
+                    stop:0.5 #bd1e3a, stop:0.75 #ad1d57,
+                    stop:1 #9d0f6f);
+            }
+            QPushButton:disabled { background-color: #cccccc; color: #666666; }
+            """
+        )
+        self.instagram_button.clicked.connect(lambda: self.run_search(Platform.INSTAGRAM))
+        platform_button_layout.addWidget(self.instagram_button)
+
+        main_layout.addLayout(platform_button_layout)
 
         # Progress Bar
         self.progress_bar = QProgressBar()
@@ -139,9 +169,10 @@ class MainWindow(QMainWindow):
         self.input_table.setRowCount(10)
 
     @asyncSlot()
-    async def run_search(self):
-        logger.info("'Run Search' button clicked.")
+    async def run_search(self, platform: Platform):
+        logger.info(f"'Run Search' button clicked for platform: {platform.value}")
         self.search_start_time = time.monotonic()
+        self.current_platform = platform
 
         keywords, urls = [], []
         for row in range(self.input_table.rowCount()):
@@ -157,7 +188,7 @@ class MainWindow(QMainWindow):
             return
 
         task_dtos = [
-            TaskDTO(index=i + 1, keyword=k, urls=urls, platform=Platform.NAVER_BLOG)
+            TaskDTO(index=i + 1, keyword=k, urls=urls, platform=platform)
             for i, k in enumerate(keywords)
         ]
 
@@ -171,12 +202,20 @@ class MainWindow(QMainWindow):
         self.current_job_id = uuid.uuid4()
         command = CreateSearchCommand(job_id=self.current_job_id, tasks=task_dtos)
 
-        self.naver_blog_button.setText("검색 중...")
-        self.naver_blog_button.setEnabled(False)
-        logger.debug("UI state updated to 'searching'.")
+        # 플랫폼에 따라 버튼 상태 업데이트
+        if platform == Platform.NAVER_BLOG:
+            self.naver_blog_button.setText("검색 중...")
+            self.naver_blog_button.setEnabled(False)
+            self.instagram_button.setEnabled(False)
+        elif platform == Platform.INSTAGRAM:
+            self.instagram_button.setText("검색 중...")
+            self.instagram_button.setEnabled(False)
+            self.naver_blog_button.setEnabled(False)
+
+        logger.debug(f"UI state updated to 'searching' for {platform.value}.")
 
         logger.info(
-            f"Creating search job {self.current_job_id} with {self.total_tasks} tasks."
+            f"Creating search job {self.current_job_id} with {self.total_tasks} tasks for {platform.value}."
         )
         await self.message_bus.handle(command)
 
@@ -204,8 +243,16 @@ class MainWindow(QMainWindow):
         )
 
         self.progress_bar.setVisible(False)
-        self.naver_blog_button.setText("네이버 블로그 검색 시작")
-        self.naver_blog_button.setEnabled(True)
+
+        # 플랫폼에 따라 버튼 복원
+        if self.current_platform == Platform.NAVER_BLOG:
+            self.naver_blog_button.setText("네이버 블로그 검색 시작")
+            self.naver_blog_button.setEnabled(True)
+            self.instagram_button.setEnabled(True)
+        elif self.current_platform == Platform.INSTAGRAM:
+            self.instagram_button.setText("Instagram 검색 시작")
+            self.instagram_button.setEnabled(True)
+            self.naver_blog_button.setEnabled(True)
 
         result_dto = await self.query_handler.handle(
             GetJobResultQuery(job_id=event.job_id)

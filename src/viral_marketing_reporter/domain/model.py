@@ -18,6 +18,7 @@ from viral_marketing_reporter.domain.events import (
 
 class Platform(Enum):
     NAVER_BLOG = "naver_blog"
+    INSTAGRAM = "instagram"
 
 
 @dataclass(frozen=True)
