@@ -12,6 +12,12 @@ from viral_marketing_reporter.domain.model import (
     Screenshot,
     SearchResult,
 )
+from viral_marketing_reporter.infrastructure.logging_utils import (
+    log_function_call,
+    log_step,
+    log_with_context,
+    PerformanceTracker,
+)
 from viral_marketing_reporter.infrastructure.platforms.base import SearchPlatformService
 from viral_marketing_reporter.infrastructure.platforms.instagram.page_objects import (
     InstagramSearchPage,
@@ -64,70 +70,141 @@ class PlaywrightInstagramService(SearchPlatformService):
         return None
 
     @override
+    @log_with_context(platform="instagram")
     async def search_and_find_posts(
         self, index: int, keyword: Keyword, posts_to_find: list[Post], output_dir: Path
     ) -> SearchResult:
         from playwright.async_api import TimeoutError
 
-        try:
-            search_page = InstagramSearchPage(self.page)
-            await search_page.goto(keyword.text)
+        tracker = PerformanceTracker(f"instagram_search_{keyword.text}")
+        tracker.start()
 
-            if await search_page.is_result_empty():
+        with log_step(
+            "Instagram 검색 및 포스트 매칭",
+            keyword=keyword.text,
+            index=index,
+            posts_to_find_count=len(posts_to_find),
+        ):
+            try:
+                search_page = InstagramSearchPage(self.page)
                 logger.info(
-                    f"{keyword}에 대한 검색 결과가 없습니다.",
-                    event_name="result_not_found",
-                    keyword=keyword,
+                    "Instagram 검색 페이지로 이동",
+                    keyword=keyword.text,
+                    event_name="navigate_to_search",
                 )
-                return SearchResult(found_posts=[], screenshot=None)
+                await search_page.goto(keyword.text)
+                tracker.checkpoint("page_loaded")
 
-            top_9_posts = await search_page.get_top_9_posts()
+                if await search_page.is_result_empty():
+                    logger.info(
+                        "검색 결과 없음",
+                        keyword=keyword.text,
+                        event_name="result_not_found",
+                    )
+                    tracker.end()
+                    return SearchResult(found_posts=[], screenshot=None)
 
-            if not top_9_posts:
-                logger.error(f"{keyword.text}에 대해서 포스트를 찾을 수 없습니다.")
-                logger.error(await search_page.page.content())
-                await search_page.page.screenshot(
-                    path=(output_dir / f"{keyword}_error.png")
+                top_9_posts = await search_page.get_top_9_posts()
+                tracker.checkpoint("top_9_posts_retrieved")
+                logger.debug(
+                    f"상위 포스트 {len(top_9_posts)}개 발견",
+                    keyword=keyword.text,
+                    post_count=len(top_9_posts),
+                    event_name="posts_retrieved",
                 )
-                return SearchResult(found_posts=[], screenshot=None)
 
-            # 상위 9개 포스트에서 찾아야 할 URL이 있는지 확인
-            tasks = [
-                self._get_matching_post_if_found(post_link, posts_to_find)
-                for post_link in top_9_posts
-            ]
-            matching_results = await asyncio.gather(*tasks)
+                if not top_9_posts:
+                    logger.error(
+                        "포스트 요소를 찾을 수 없음",
+                        keyword=keyword.text,
+                        event_name="posts_not_found",
+                    )
+                    logger.error(await search_page.page.content())
+                    await search_page.page.screenshot(
+                        path=(output_dir / f"{keyword.text}_error.png")
+                    )
+                    tracker.end()
+                    return SearchResult(found_posts=[], screenshot=None)
 
-            found_posts_in_top9: list[Post] = [
-                post for post in matching_results if post
-            ]
-            elements_to_highlight: list[Locator] = [
-                top_9_posts[i] for i, post in enumerate(matching_results) if post
-            ]
-
-            # 매칭된 포스트가 있으면 하이라이트 적용
-            if found_posts_in_top9:
-                highlight_tasks = [
-                    search_page.highlight_element(element)
-                    for element in elements_to_highlight
+                # 상위 9개 포스트에서 찾아야 할 URL이 있는지 확인
+                logger.debug(
+                    "포스트 매칭 시작",
+                    keyword=keyword.text,
+                    event_name="matching_start",
+                )
+                tasks = [
+                    self._get_matching_post_if_found(post_link, posts_to_find)
+                    for post_link in top_9_posts
                 ]
-                await asyncio.gather(*highlight_tasks)
+                matching_results = await asyncio.gather(*tasks)
+                tracker.checkpoint("posts_matched")
 
-            # 스크린샷은 매칭 여부와 관계없이 무조건 촬영
-            screenshot_path = await search_page.take_screenshot_of_results(
-                index, keyword.text, output_dir
-            )
+                found_posts_in_top9: list[Post] = [
+                    post for post in matching_results if post
+                ]
+                elements_to_highlight: list[Locator] = [
+                    top_9_posts[i] for i, post in enumerate(matching_results) if post
+                ]
 
-            return SearchResult(
-                found_posts=found_posts_in_top9,
-                screenshot=Screenshot(file_path=screenshot_path),
-            )
-        except TimeoutError as e:
-            logger.exception(
-                f"페이지 로드 시간 초과: {keyword.text}",
-                event_name="page_load_timeout",
-                keyword=keyword.text,
-            )
-            raise e
-        finally:
-            await self.page.close()
+                logger.info(
+                    f"포스트 매칭 완료",
+                    keyword=keyword.text,
+                    found_count=len(found_posts_in_top9),
+                    target_count=len(posts_to_find),
+                    event_name="matching_completed",
+                )
+
+                # 매칭된 포스트가 있으면 하이라이트 적용
+                if found_posts_in_top9:
+                    logger.debug(
+                        "매칭된 포스트 하이라이트 적용",
+                        keyword=keyword.text,
+                        highlight_count=len(elements_to_highlight),
+                        event_name="highlight_start",
+                    )
+                    highlight_tasks = [
+                        search_page.highlight_element(element)
+                        for element in elements_to_highlight
+                    ]
+                    await asyncio.gather(*highlight_tasks)
+                    tracker.checkpoint("posts_highlighted")
+
+                # 스크린샷은 매칭 여부와 관계없이 무조건 촬영
+                logger.debug(
+                    "스크린샷 촬영 시작",
+                    keyword=keyword.text,
+                    event_name="screenshot_start",
+                )
+                screenshot_path = await search_page.take_screenshot_of_results(
+                    index, keyword.text, output_dir
+                )
+                tracker.checkpoint("screenshot_taken")
+                logger.info(
+                    "스크린샷 촬영 완료",
+                    keyword=keyword.text,
+                    screenshot_path=str(screenshot_path),
+                    event_name="screenshot_completed",
+                )
+
+                tracker.end()
+                return SearchResult(
+                    found_posts=found_posts_in_top9,
+                    screenshot=Screenshot(file_path=screenshot_path),
+                )
+            except TimeoutError as e:
+                logger.exception(
+                    "페이지 로드 시간 초과",
+                    keyword=keyword.text,
+                    error=str(e),
+                    error_type=e.__class__.__name__,
+                    event_name="page_load_timeout",
+                )
+                tracker.end()
+                raise e
+            finally:
+                logger.debug(
+                    "Instagram 페이지 정리",
+                    keyword=keyword.text,
+                    event_name="page_cleanup",
+                )
+                await self.page.close()

@@ -25,8 +25,8 @@ from viral_marketing_reporter.infrastructure.platforms.naver_blog.service import
 from viral_marketing_reporter.infrastructure.platforms.instagram.service import (
     PlaywrightInstagramService,
 )
-from viral_marketing_reporter.infrastructure.platforms.instagram.authentication_service import (
-    InstagramAuthenticationService,
+from viral_marketing_reporter.infrastructure.platforms.instagram.auth_service import (
+    InstagramAuthService,
 )
 from viral_marketing_reporter.infrastructure.uow import InMemoryUnitOfWork
 from viral_marketing_reporter.presentation.main_window import MainWindow
@@ -98,7 +98,7 @@ async def run_app(app: QApplication):
         factory.register_service(Platform.INSTAGRAM, PlaywrightInstagramService)
 
         # 인증 서비스 등록 (인증이 필요한 플랫폼만)
-        instagram_auth = InstagramAuthenticationService(browser=context.browser)
+        instagram_auth = InstagramAuthService(browser=context.browser)
         factory.register_auth_service(Platform.INSTAGRAM, instagram_auth)
 
         bootstrap.bootstrap(uow=uow, bus=bus, factory=factory)

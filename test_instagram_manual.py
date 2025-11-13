@@ -19,8 +19,8 @@ from viral_marketing_reporter.infrastructure.platforms.factory import (
 from viral_marketing_reporter.infrastructure.platforms.instagram.service import (
     PlaywrightInstagramService,
 )
-from viral_marketing_reporter.infrastructure.platforms.instagram.authentication_service import (
-    InstagramAuthenticationService,
+from viral_marketing_reporter.infrastructure.platforms.instagram.auth_service import (
+    InstagramAuthService,
 )
 
 
@@ -51,7 +51,7 @@ async def run_test():
         factory.register_service(Platform.INSTAGRAM, PlaywrightInstagramService)
 
         # 인증 서비스 등록
-        instagram_auth = InstagramAuthenticationService(browser=context.browser)
+        instagram_auth = InstagramAuthService(browser=context.browser)
         factory.register_auth_service(Platform.INSTAGRAM, instagram_auth)
 
         print("\n" + "=" * 60)

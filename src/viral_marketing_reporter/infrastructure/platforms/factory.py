@@ -4,6 +4,11 @@ from loguru import logger
 
 from viral_marketing_reporter.domain.model import Platform
 from viral_marketing_reporter.infrastructure.context import ApplicationContext
+from viral_marketing_reporter.infrastructure.logging_utils import (
+    log_function_call,
+    log_step,
+    PerformanceTracker,
+)
 from viral_marketing_reporter.infrastructure.platforms.authentication import (
     PlatformAuthenticationService,
 )
@@ -38,18 +43,39 @@ class PlatformServiceFactory:
         Args:
             platforms: 준비할 플랫폼들의 집합
         """
-        logger.info(f"플랫폼 사전 준비 시작: {[p.value for p in platforms]}")
+        tracker = PerformanceTracker("prepare_platforms")
+        tracker.start()
 
-        for platform in platforms:
-            if platform in self._auth_services:
-                auth_service = self._auth_services[platform]
-                if not auth_service.is_authenticated():
-                    logger.info(f"{platform.value} 인증을 시작합니다...")
-                    await auth_service.authenticate()
+        with log_step(
+            "플랫폼 사전 준비",
+            platforms=[p.value for p in platforms],
+            platform_count=len(platforms),
+        ):
+            for platform in platforms:
+                if platform in self._auth_services:
+                    auth_service = self._auth_services[platform]
+                    if not auth_service.is_authenticated():
+                        logger.info(
+                            f"{platform.value} 인증 시작",
+                            platform=platform.value,
+                            event_name="auth_start",
+                        )
+                        await auth_service.authenticate()
+                        tracker.checkpoint(f"{platform.value}_authenticated")
+                    else:
+                        logger.debug(
+                            f"{platform.value} 이미 인증됨",
+                            platform=platform.value,
+                            event_name="auth_skip",
+                        )
                 else:
-                    logger.debug(f"{platform.value}는 이미 인증되었습니다.")
+                    logger.debug(
+                        f"{platform.value} 인증 불필요",
+                        platform=platform.value,
+                        event_name="auth_not_required",
+                    )
 
-        logger.info("플랫폼 사전 준비 완료")
+        tracker.end()
 
     async def get_service(self, platform: Platform) -> SearchPlatformService:
         """컨텍스트를 이용해 페이지를 생성하고, 등록된 서비스 클래스를 인스턴스화하여 반환합니다.
@@ -63,29 +89,71 @@ class PlatformServiceFactory:
         Raises:
             ValueError: 등록되지 않은 플랫폼인 경우
         """
+        logger.debug(
+            f"플랫폼 서비스 생성 시작",
+            platform=platform.value,
+            event_name="service_creation_start",
+        )
+
         service_class = self._service_classes.get(platform)
         if not service_class:
+            logger.error(
+                f"지원하지 않는 플랫폼",
+                platform=platform.name,
+                event_name="unsupported_platform",
+            )
             raise ValueError(f"지원하지 않는 플랫폼입니다: {platform.name}")
 
         # 인증 서비스가 등록된 플랫폼인 경우
         if platform in self._auth_services:
+            logger.debug(
+                f"인증된 컨텍스트 사용",
+                platform=platform.value,
+                event_name="using_authenticated_context",
+            )
             auth_service = self._auth_services[platform]
             context = await auth_service.authenticate()
             page = await context.new_page()
         else:
             # 인증이 필요 없는 플랫폼은 기본 컨텍스트 사용
+            logger.debug(
+                f"기본 컨텍스트 사용",
+                platform=platform.value,
+                event_name="using_default_context",
+            )
             page = await self._context.new_page()
 
+        logger.info(
+            f"플랫폼 서비스 생성 완료",
+            platform=platform.value,
+            service_class=service_class.__name__,
+            event_name="service_created",
+        )
         return service_class(page=page)
 
     async def cleanup(self) -> None:
         """팩토리가 관리하는 모든 인증 서비스를 정리합니다."""
-        logger.info("팩토리 리소스 정리 시작...")
-
-        for platform, auth_service in self._auth_services.items():
-            try:
-                await auth_service.cleanup()
-            except Exception as e:
-                logger.warning(f"{platform.value} 인증 서비스 정리 중 오류: {e}")
-
-        logger.info("팩토리 리소스 정리 완료")
+        with log_step(
+            "팩토리 리소스 정리", auth_service_count=len(self._auth_services)
+        ):
+            for platform, auth_service in self._auth_services.items():
+                try:
+                    logger.debug(
+                        f"{platform.value} 인증 서비스 정리 시작",
+                        platform=platform.value,
+                        event_name="cleanup_start",
+                    )
+                    await auth_service.cleanup()
+                    logger.debug(
+                        f"{platform.value} 인증 서비스 정리 완료",
+                        platform=platform.value,
+                        event_name="cleanup_success",
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"{platform.value} 인증 서비스 정리 중 오류",
+                        platform=platform.value,
+                        error=str(e),
+                        error_type=e.__class__.__name__,
+                        event_name="cleanup_error",
+                    )

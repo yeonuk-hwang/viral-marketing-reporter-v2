@@ -12,6 +12,12 @@ from viral_marketing_reporter.domain.model import (
     Screenshot,
     SearchResult,
 )
+from viral_marketing_reporter.infrastructure.logging_utils import (
+    log_function_call,
+    log_step,
+    log_with_context,
+    PerformanceTracker,
+)
 from viral_marketing_reporter.infrastructure.platforms.base import SearchPlatformService
 from viral_marketing_reporter.infrastructure.platforms.naver_blog.page_objects import (
     NaverBlogSearchPage,
@@ -93,74 +99,150 @@ class PlaywrightNaverBlogService(SearchPlatformService):
         return None
 
     @override
+    @log_with_context(platform="naver_blog")
     async def search_and_find_posts(
         self, index: int, keyword: Keyword, posts_to_find: list[Post], output_dir: Path
     ) -> SearchResult:
         from playwright.async_api import TimeoutError
 
-        try:
-            search_page = NaverBlogSearchPage(self.page)
-            await search_page.goto(keyword.text)
+        tracker = PerformanceTracker(f"naver_blog_search_{keyword.text}")
+        tracker.start()
 
-            if await search_page.is_result_empty():
+        with log_step(
+            "네이버 블로그 검색 및 포스트 매칭",
+            keyword=keyword.text,
+            index=index,
+            posts_to_find_count=len(posts_to_find),
+        ):
+            try:
+                search_page = NaverBlogSearchPage(self.page)
                 logger.info(
-                    f"{keyword}에 대한 검색 결과가 없습니다.",
-                    event_name="result_not_found",
-                    keyword=keyword,
+                    "네이버 블로그 검색 페이지로 이동",
+                    keyword=keyword.text,
+                    event_name="navigate_to_search",
                 )
-                return SearchResult(found_posts=[], screenshot=None)
+                await search_page.goto(keyword.text)
+                tracker.checkpoint("page_loaded")
 
-            top_10_posts = await search_page.get_top_10_posts()
+                if await search_page.is_result_empty():
+                    logger.info(
+                        "검색 결과 없음",
+                        keyword=keyword.text,
+                        event_name="result_not_found",
+                    )
+                    tracker.end()
+                    return SearchResult(found_posts=[], screenshot=None)
 
-            if not top_10_posts:
-                logger.error(f"{keyword.text}에 대해서 포스트를 찾을 수 없습니다.")
-                logger.error(await search_page.page.content())
-                await search_page.page.screenshot(
-                    path=(output_dir / f"{keyword}_error.png")
+                top_10_posts = await search_page.get_top_10_posts()
+                tracker.checkpoint("top_10_posts_retrieved")
+                logger.debug(
+                    f"상위 포스트 {len(top_10_posts)}개 발견",
+                    keyword=keyword.text,
+                    post_count=len(top_10_posts),
+                    event_name="posts_retrieved",
                 )
-                # 결과가 없더라도 빈 결과 반환
-                return SearchResult(found_posts=[], screenshot=None)
 
-            tasks = [
-                self._get_matching_post_if_found(post_element, posts_to_find)
-                for post_element in top_10_posts
-            ]
-            matching_results = await asyncio.gather(*tasks)
+                if not top_10_posts:
+                    logger.error(
+                        "포스트 요소를 찾을 수 없음",
+                        keyword=keyword.text,
+                        event_name="posts_not_found",
+                    )
+                    logger.error(await search_page.page.content())
+                    await search_page.page.screenshot(
+                        path=(output_dir / f"{keyword.text}_error.png")
+                    )
+                    tracker.end()
+                    return SearchResult(found_posts=[], screenshot=None)
 
-            found_posts_in_top10: list[Post] = [
-                post for post in matching_results if post
-            ]
-            elements_to_highlight: list[Locator] = [
-                top_10_posts[i] for i, post in enumerate(matching_results) if post
-            ]
-
-            screenshot_path = None
-            if found_posts_in_top10:
-                highlight_tasks = [
-                    search_page.highlight_element(element)
-                    for element in elements_to_highlight
+                logger.debug(
+                    "포스트 매칭 시작",
+                    keyword=keyword.text,
+                    event_name="matching_start",
+                )
+                tasks = [
+                    self._get_matching_post_if_found(post_element, posts_to_find)
+                    for post_element in top_10_posts
                 ]
-                highlight_tasks.append(
-                    search_page.highlight_element(search_page.blog_tab_button)
-                )
-                await asyncio.gather(*highlight_tasks)
+                matching_results = await asyncio.gather(*tasks)
+                tracker.checkpoint("posts_matched")
 
-                screenshot_path = await search_page.take_screenshot_of_results(
-                    index, keyword.text, output_dir
+                found_posts_in_top10: list[Post] = [
+                    post for post in matching_results if post
+                ]
+                elements_to_highlight: list[Locator] = [
+                    top_10_posts[i] for i, post in enumerate(matching_results) if post
+                ]
+
+                logger.info(
+                    "포스트 매칭 완료",
+                    keyword=keyword.text,
+                    found_count=len(found_posts_in_top10),
+                    target_count=len(posts_to_find),
+                    event_name="matching_completed",
                 )
 
-            return SearchResult(
-                found_posts=found_posts_in_top10,
-                screenshot=Screenshot(file_path=screenshot_path)
-                if screenshot_path
-                else None,
-            )
-        except TimeoutError as e:
-            logger.exception(
-                f"페이지 로드 시간 초과: {keyword.text}",
-                event_name="page_load_timeout",
-                keyword=keyword.text,
-            )
-            raise e
-        finally:
-            await self.page.close()
+                screenshot_path = None
+                if found_posts_in_top10:
+                    logger.debug(
+                        "매칭된 포스트 하이라이트 적용",
+                        keyword=keyword.text,
+                        highlight_count=len(elements_to_highlight),
+                        event_name="highlight_start",
+                    )
+                    highlight_tasks = [
+                        search_page.highlight_element(element)
+                        for element in elements_to_highlight
+                    ]
+                    highlight_tasks.append(
+                        search_page.highlight_element(search_page.blog_tab_button)
+                    )
+                    await asyncio.gather(*highlight_tasks)
+                    tracker.checkpoint("posts_highlighted")
+
+                    logger.debug(
+                        "스크린샷 촬영 시작",
+                        keyword=keyword.text,
+                        event_name="screenshot_start",
+                    )
+                    screenshot_path = await search_page.take_screenshot_of_results(
+                        index, keyword.text, output_dir
+                    )
+                    tracker.checkpoint("screenshot_taken")
+                    logger.info(
+                        "스크린샷 촬영 완료",
+                        keyword=keyword.text,
+                        screenshot_path=str(screenshot_path),
+                        event_name="screenshot_completed",
+                    )
+                else:
+                    logger.info(
+                        "매칭된 포스트 없음 - 스크린샷 생략",
+                        keyword=keyword.text,
+                        event_name="no_matches_no_screenshot",
+                    )
+
+                tracker.end()
+                return SearchResult(
+                    found_posts=found_posts_in_top10,
+                    screenshot=Screenshot(file_path=screenshot_path)
+                    if screenshot_path
+                    else None,
+                )
+            except TimeoutError as e:
+                logger.exception(
+                    "페이지 로드 시간 초과",
+                    keyword=keyword.text,
+                    error=str(e),
+                    error_type=e.__class__.__name__,
+                    event_name="page_load_timeout",
+                )
+                tracker.end()
+                raise e
+            finally:
+                logger.debug(
+                    "네이버 블로그 페이지 정리",
+                    keyword=keyword.text,
+                    event_name="page_cleanup",
+                )
+                await self.page.close()
