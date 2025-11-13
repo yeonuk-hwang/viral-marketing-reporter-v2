@@ -10,6 +10,10 @@ from qasync import QEventLoop
 from viral_marketing_reporter import bootstrap
 from viral_marketing_reporter.domain.events import JobCompleted, TaskCompleted
 from viral_marketing_reporter.infrastructure.context import ApplicationContext
+from viral_marketing_reporter.infrastructure.environment import (
+    get_environment_info,
+    format_environment_info,
+)
 from viral_marketing_reporter.infrastructure.message_bus import FunctionHandler
 from viral_marketing_reporter.presentation.main_window import MainWindow
 
@@ -39,6 +43,12 @@ logger.add(
 def global_exception_handler(exc_type, exc_value, exc_traceback):
     """전역 예외 처리기"""
     logger.exception("An unexpected error occurred")
+
+    # 에러 발생 시 환경 정보도 함께 로깅
+    env_info = get_environment_info()
+    logger.error("Environment at time of error:")
+    logger.error(format_environment_info(env_info))
+
     msg_box = QMessageBox()
     msg_box.setIcon(QMessageBox.Icon.Warning)
     msg_box.setText("예상치 못한 오류 발생")
@@ -120,8 +130,15 @@ async def run_app(app: QApplication):
 def main():
     """메인 애플리케이션 진입점"""
     sys.excepthook = global_exception_handler
+
     try:
         app = QApplication(sys.argv)
+
+        # Qt 초기화 후 환경 정보 수집 및 로깅
+        env_info = get_environment_info()
+        logger.info("Application starting - Environment information:")
+        logger.info(format_environment_info(env_info))
+
         loop = QEventLoop(app)
         asyncio.set_event_loop(loop)
         loop.run_until_complete(run_app(app))
