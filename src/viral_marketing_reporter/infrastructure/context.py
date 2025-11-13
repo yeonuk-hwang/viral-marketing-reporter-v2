@@ -32,7 +32,8 @@ class ApplicationContext:
 
         # 기본 컨텍스트: 네이버 블로그 등 기존 플랫폼용 (1920px)
         self._default_context = await self.browser.new_context(
-            viewport={"width": 1920, "height": 1080}
+            viewport={"width": 1920, "height": 1080},
+            locale="en-GB",
         )
 
         return self
