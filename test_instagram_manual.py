@@ -11,22 +11,14 @@
 import asyncio
 from pathlib import Path
 
+from viral_marketing_reporter import bootstrap
 from viral_marketing_reporter.domain.model import Keyword, Platform, Post
 from viral_marketing_reporter.infrastructure.context import ApplicationContext
-from viral_marketing_reporter.infrastructure.platforms.factory import (
-    PlatformServiceFactory,
-)
-from viral_marketing_reporter.infrastructure.platforms.instagram.service import (
-    PlaywrightInstagramService,
-)
-from viral_marketing_reporter.infrastructure.platforms.instagram.auth_service import (
-    InstagramAuthService,
-)
 
 
 async def run_test():
     print("=" * 60)
-    print("Instagram 플랫폼 테스트 (AuthManager 버전)")
+    print("Instagram 플랫폼 테스트")
     print("=" * 60)
 
     # 테스트 데이터
@@ -46,13 +38,9 @@ async def run_test():
     async with ApplicationContext() as context:
         print("\nApplicationContext 초기화 완료 (headless 모드)")
 
-        # PlatformServiceFactory 설정
-        factory = PlatformServiceFactory(context)
-        factory.register_service(Platform.INSTAGRAM, PlaywrightInstagramService)
-
-        # 인증 서비스 등록
-        instagram_auth = InstagramAuthService(browser=context.browser)
-        factory.register_auth_service(Platform.INSTAGRAM, instagram_auth)
+        # Bootstrap으로 애플리케이션 초기화
+        print("\n애플리케이션 bootstrap 시작...")
+        application = bootstrap.bootstrap(context)
 
         print("\n" + "=" * 60)
         print("Instagram 인증을 준비합니다...")
@@ -60,7 +48,7 @@ async def run_test():
         print("=" * 60)
 
         # 플랫폼 사전 준비 (인증)
-        await factory.prepare_platforms({Platform.INSTAGRAM})
+        await application.factory.prepare_platforms({Platform.INSTAGRAM})
 
         print("\n" + "=" * 60)
         print("Instagram 서비스를 가져옵니다...")
@@ -68,7 +56,7 @@ async def run_test():
 
         try:
             # Instagram 서비스 가져오기
-            service = await factory.get_service(Platform.INSTAGRAM)
+            service = await application.factory.get_service(Platform.INSTAGRAM)
 
             print("\n검색을 시작합니다...")
 
@@ -104,7 +92,7 @@ async def run_test():
 
         finally:
             # Factory 리소스 정리
-            await factory.cleanup()
+            await application.factory.cleanup()
 
     print("\n테스트 완료!")
     print("\n💡 Tip: 저장된 세션을 삭제하려면:")

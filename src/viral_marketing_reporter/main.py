@@ -8,27 +8,9 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 from qasync import QEventLoop
 
 from viral_marketing_reporter import bootstrap
-from viral_marketing_reporter.application.handlers import GetJobResultQueryHandler
 from viral_marketing_reporter.domain.events import JobCompleted, TaskCompleted
-from viral_marketing_reporter.domain.model import Platform
 from viral_marketing_reporter.infrastructure.context import ApplicationContext
-from viral_marketing_reporter.infrastructure.message_bus import (
-    FunctionHandler,
-    InMemoryMessageBus,
-)
-from viral_marketing_reporter.infrastructure.platforms.factory import (
-    PlatformServiceFactory,
-)
-from viral_marketing_reporter.infrastructure.platforms.naver_blog.service import (
-    PlaywrightNaverBlogService,
-)
-from viral_marketing_reporter.infrastructure.platforms.instagram.service import (
-    PlaywrightInstagramService,
-)
-from viral_marketing_reporter.infrastructure.platforms.instagram.auth_service import (
-    InstagramAuthService,
-)
-from viral_marketing_reporter.infrastructure.uow import InMemoryUnitOfWork
+from viral_marketing_reporter.infrastructure.message_bus import FunctionHandler
 from viral_marketing_reporter.presentation.main_window import MainWindow
 
 # --- 로깅 설정 ---
@@ -70,7 +52,7 @@ def global_exception_handler(exc_type, exc_value, exc_traceback):
 
 
 async def run_app(app: QApplication):
-    """애플리케-이션을 설정하고 실행합니다."""
+    """애플리케이션을 설정하고 실행합니다."""
     logger.info("Application starting...")
 
     context = ApplicationContext()
@@ -88,32 +70,22 @@ async def run_app(app: QApplication):
         for sig in (signal.SIGINT, signal.SIGTERM):
             loop.add_signal_handler(sig, signal_handler)
 
+    # 애플리케이션 초기화
+    application = None
     try:
-        bus = InMemoryMessageBus()
-        uow = InMemoryUnitOfWork(bus)
-        factory = PlatformServiceFactory(context)
+        # Bootstrap으로 모든 컴포넌트 초기화
+        application = bootstrap.bootstrap(context)
 
-        # 플랫폼 서비스 등록
-        factory.register_service(Platform.NAVER_BLOG, PlaywrightNaverBlogService)
-        factory.register_service(Platform.INSTAGRAM, PlaywrightInstagramService)
-
-        # 인증 서비스 등록 (인증이 필요한 플랫폼만)
-        instagram_auth = InstagramAuthService(browser=context.browser)
-        factory.register_auth_service(Platform.INSTAGRAM, instagram_auth)
-
-        bootstrap.bootstrap(uow=uow, bus=bus, factory=factory)
-        query_handler = GetJobResultQueryHandler(uow=uow)
-
-        # window에 종료 이벤트를 공유
+        # UI 설정
         window = MainWindow(
-            message_bus=bus,
-            query_handler=query_handler,
+            message_bus=application.bus,
+            query_handler=application.query_handler,
             shutdown_event=shutdown_event,
         )
-        bus.subscribe_to_event(
+        application.bus.subscribe_to_event(
             JobCompleted, FunctionHandler(window.handle_job_completed)
         )
-        bus.subscribe_to_event(
+        application.bus.subscribe_to_event(
             TaskCompleted, FunctionHandler(window.handle_task_completed)
         )
         window.show()
@@ -125,9 +97,9 @@ async def run_app(app: QApplication):
         logger.info("Closing application resources...")
 
         # Factory cleanup (인증 서비스 등)
-        if factory:
+        if application and application.factory:
             try:
-                await factory.cleanup()
+                await application.factory.cleanup()
             except Exception as e:
                 logger.warning(f"Factory cleanup error: {e}")
 
