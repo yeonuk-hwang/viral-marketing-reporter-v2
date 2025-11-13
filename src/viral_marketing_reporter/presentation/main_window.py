@@ -180,13 +180,20 @@ class MainWindow(QMainWindow):
         self.search_start_time = time.monotonic()
         self.current_platform = platform
 
-        # 현재 편집 중인 셀의 내용을 커밋하고 포커스를 제거합니다.
-        # 이를 통해 입력 중이던 데이터가 누락되는 것을 방지합니다.
-        self.input_table.clearFocus()
-        # 현재 열려있는 에디터가 있다면 닫습니다.
-        current_item = self.input_table.currentItem()
-        if current_item:
-            self.input_table.closePersistentEditor(current_item)
+        # 현재 편집 중인 셀의 내용을 커밋합니다.
+        # Enter 키 이벤트를 전송하여 편집을 완료하고 내용을 커밋합니다.
+        if self.input_table.state() == QAbstractItemView.State.EditingState:
+            from PySide6.QtCore import QEvent
+            from PySide6.QtGui import QKeyEvent
+
+            # Enter 키 이벤트 생성 및 전송
+            key_event = QKeyEvent(
+                QEvent.Type.KeyPress,
+                Qt.Key.Key_Return,
+                Qt.KeyboardModifier.NoModifier
+            )
+            QApplication.sendEvent(self.input_table, key_event)
+            QApplication.processEvents()
 
         keywords, urls = [], []
         for row in range(self.input_table.rowCount()):
