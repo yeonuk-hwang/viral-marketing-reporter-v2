@@ -101,7 +101,7 @@ class InstagramAuthService(PlatformAuthenticationService):
         tracker.start()
 
         # 컨텍스트 생성 옵션
-        context_options = {"viewport": {"width": 1280, "height": 1080}}
+        context_options = {"viewport": {"width": 1920, "height": 1080}}
 
         # 저장된 세션이 있으면 로드
         if self.has_saved_session():
@@ -218,7 +218,7 @@ class InstagramAuthService(PlatformAuthenticationService):
                 # headful 브라우저 실행
                 browser = await playwright.chromium.launch(headless=False)
                 context = await browser.new_context(
-                    viewport={"width": 1280, "height": 1080}
+                    viewport={"width": 1920, "height": 1080}
                 )
                 logger.debug(
                     "Headful 브라우저 컨텍스트 생성 완료",
