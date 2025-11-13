@@ -140,7 +140,13 @@ class MainWindow(QMainWindow):
         self.input_table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Stretch
         )
-        self.input_table.setEditTriggers(QAbstractItemView.EditTrigger.DoubleClicked)
+        # 더블클릭 또는 선택된 셀에서 키를 누르면 편집 모드로 진입합니다.
+        # 이를 통해 한글 입력 시 자모 분리 문제를 방지합니다.
+        self.input_table.setEditTriggers(
+            QAbstractItemView.EditTrigger.DoubleClicked
+            | QAbstractItemView.EditTrigger.SelectedClicked
+            | QAbstractItemView.EditTrigger.AnyKeyPressed
+        )
         main_layout.addWidget(self.input_table)
 
         button_layout = QHBoxLayout()
@@ -173,6 +179,14 @@ class MainWindow(QMainWindow):
         logger.info(f"'Run Search' button clicked for platform: {platform.value}")
         self.search_start_time = time.monotonic()
         self.current_platform = platform
+
+        # 현재 편집 중인 셀의 내용을 커밋하고 포커스를 제거합니다.
+        # 이를 통해 입력 중이던 데이터가 누락되는 것을 방지합니다.
+        self.input_table.clearFocus()
+        # 현재 열려있는 에디터가 있다면 닫습니다.
+        current_item = self.input_table.currentItem()
+        if current_item:
+            self.input_table.closePersistentEditor(current_item)
 
         keywords, urls = [], []
         for row in range(self.input_table.rowCount()):
