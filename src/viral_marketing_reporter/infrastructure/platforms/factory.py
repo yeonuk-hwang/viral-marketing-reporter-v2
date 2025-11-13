@@ -1,6 +1,7 @@
 from typing import Type
 
 from loguru import logger
+from playwright.async_api import BrowserContext
 
 from viral_marketing_reporter.domain.model import Platform
 from viral_marketing_reporter.infrastructure.context import ApplicationContext
@@ -22,6 +23,7 @@ class PlatformServiceFactory:
         self._context: ApplicationContext = context
         self._service_classes: dict[Platform, Type[SearchPlatformService]] = {}
         self._auth_services: dict[Platform, PlatformAuthenticationService] = {}
+        self._created_contexts: list[BrowserContext] = []  # Factory가 생성한 context들 추적
 
     def register_service(
         self, platform: Platform, service_class: Type[SearchPlatformService]
@@ -115,13 +117,18 @@ class PlatformServiceFactory:
             context = await auth_service.authenticate()
             page = await context.new_page()
         else:
-            # 인증이 필요 없는 플랫폼은 기본 컨텍스트 사용
+            # 인증이 필요 없는 플랫폼은 Factory가 직접 context 생성
             logger.debug(
-                f"기본 컨텍스트 사용",
+                f"새 컨텍스트 생성",
                 platform=platform.value,
-                event_name="using_default_context",
+                event_name="creating_new_context",
             )
-            page = await self._context.new_page()
+            context = await self._context.browser.new_context(
+                viewport={"width": 1920, "height": 1080},
+                locale="en-GB",
+            )
+            self._created_contexts.append(context)
+            page = await context.new_page()
 
         logger.info(
             f"플랫폼 서비스 생성 완료",
@@ -132,10 +139,37 @@ class PlatformServiceFactory:
         return service_class(page=page)
 
     async def cleanup(self) -> None:
-        """팩토리가 관리하는 모든 인증 서비스를 정리합니다."""
+        """팩토리가 관리하는 모든 리소스를 정리합니다."""
         with log_step(
-            "팩토리 리소스 정리", auth_service_count=len(self._auth_services)
+            "팩토리 리소스 정리",
+            auth_service_count=len(self._auth_services),
+            created_context_count=len(self._created_contexts),
         ):
+            # Factory가 생성한 context들 닫기
+            for idx, context in enumerate(self._created_contexts):
+                try:
+                    logger.debug(
+                        f"Factory 생성 컨텍스트 정리 중",
+                        context_index=idx,
+                        event_name="context_cleanup_start",
+                    )
+                    await context.close()
+                    logger.debug(
+                        f"Factory 생성 컨텍스트 정리 완료",
+                        context_index=idx,
+                        event_name="context_cleanup_success",
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"Factory 생성 컨텍스트 정리 중 오류",
+                        context_index=idx,
+                        error=str(e),
+                        error_type=e.__class__.__name__,
+                        event_name="context_cleanup_error",
+                    )
+            self._created_contexts.clear()
+
+            # 인증 서비스 정리
             for platform, auth_service in self._auth_services.items():
                 try:
                     logger.debug(
