@@ -254,7 +254,8 @@ class InstagramAuthService(PlatformAuthenticationService):
                         )
 
                 page = await context.new_page()
-                await page.goto("https://www.instagram.com/accounts/login/", timeout=30000)
+                # 메인 페이지로 이동 (/accounts/login/은 429로 차단될 수 있음)
+                await page.goto("https://www.instagram.com/", timeout=30000)
                 logger.debug(
                     "Instagram 로그인 페이지 이동 완료",
                     event_name="login_page_loaded",
@@ -306,24 +307,13 @@ class InstagramAuthService(PlatformAuthenticationService):
                     event_name="login_wait_start",
                 )
 
-                # 1단계: 로그인 페이지에서 벗어날 때까지 대기
-                await page.wait_for_url(
-                    lambda url: "/accounts/login" not in url,
-                    timeout=timeout * 1000,
-                )
-                logger.info(
-                    "로그인 페이지 벗어남 감지",
-                    current_url=page.url,
-                    event_name="login_page_exited",
-                )
-
-                # 2단계: "Profile" 또는 프로필 관련 텍스트가 나타날 때까지 대기
+                # 로그인 완료 시 "Profile" 또는 프로필 관련 텍스트가 나타날 때까지 대기
                 import re
 
                 try:
                     # Profile, Home, Search 등 로그인 후 나타나는 텍스트 찾기
                     await page.get_by_text(re.compile("profile", re.IGNORECASE)).wait_for(
-                        timeout=30000, state="visible"
+                        timeout=timeout * 1000, state="visible"
                     )
                     logger.info(
                         "프로필 요소 감지 - 로그인 성공",
@@ -331,7 +321,7 @@ class InstagramAuthService(PlatformAuthenticationService):
                     )
                 except Exception as e:
                     logger.warning(
-                        "프로필 텍스트 미발견 (로그인 페이지는 벗어남)",
+                        "프로필 텍스트 미발견 (타임아웃)",
                         error=str(e),
                         error_type=e.__class__.__name__,
                         event_name="profile_element_not_found",
