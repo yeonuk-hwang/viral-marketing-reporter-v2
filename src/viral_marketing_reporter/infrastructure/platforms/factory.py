@@ -126,6 +126,7 @@ class PlatformServiceFactory:
             context = await self._context.browser.new_context(
                 viewport={"width": 1920, "height": 1080},
                 locale="en-GB",
+                user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
             )
             self._created_contexts.append(context)
             page = await context.new_page()

@@ -104,6 +104,7 @@ class InstagramAuthService(PlatformAuthenticationService):
         context_options = {
             "viewport": {"width": 1920, "height": 1080},
             "locale": "en-GB",
+            "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
         }
 
         # 저장된 세션이 있으면 로드
@@ -218,11 +219,17 @@ class InstagramAuthService(PlatformAuthenticationService):
             from playwright.async_api import async_playwright
 
             async with async_playwright() as playwright:
-                # headful 브라우저 실행
-                browser = await playwright.chromium.launch(headless=False)
+                # headful 브라우저 실행 (자동화 감지 우회)
+                browser = await playwright.chromium.launch(
+                    headless=False,
+                    args=[
+                        "--disable-blink-features=AutomationControlled",
+                    ],
+                )
                 context = await browser.new_context(
                     viewport={"width": 1920, "height": 1080},
                     locale="en-GB",
+                    user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
                 )
                 logger.debug(
                     "Headful 브라우저 컨텍스트 생성 완료",

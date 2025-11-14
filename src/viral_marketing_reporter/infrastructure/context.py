@@ -25,8 +25,13 @@ class ApplicationContext:
 
     async def __aenter__(self) -> ApplicationContext:
         self._playwright = await async_playwright().start()
-        # headless 모드로 실행
-        self.browser = await self._playwright.chromium.launch(headless=True)
+        # headless 모드로 실행 (자동화 감지 우회)
+        self.browser = await self._playwright.chromium.launch(
+            headless=True,
+            args=[
+                "--disable-blink-features=AutomationControlled",
+            ],
+        )
         return self
 
     async def __aexit__(
