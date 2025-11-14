@@ -51,7 +51,7 @@ class InstagramSearchPage:
             event_name="wait_for_posts",
         )
         await self.page.locator('a[href*="/p/"], a[href*="/reel/"]').first.wait_for(
-            state="visible", timeout=30 * 1000
+            state="visible", timeout=60 * 1000
         )
         logger.debug(
             "포스트 요소 로드 완료",
