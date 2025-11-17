@@ -8,6 +8,7 @@ from viral_marketing_reporter.application import handlers
 from viral_marketing_reporter.application.commands import (
     CreateSearchCommand,
     ExecuteSearchTaskCommand,
+    LogoutInstagramCommand,
 )
 from viral_marketing_reporter.application.handlers import GetJobResultQueryHandler
 from viral_marketing_reporter.domain.events import (
@@ -91,6 +92,10 @@ def bootstrap(context: ApplicationContext) -> Application:
     bus.register_command(
         ExecuteSearchTaskCommand,
         handlers.ExecuteSearchTaskCommandHandler(uow=uow, factory=factory),
+    )
+    bus.register_command(
+        LogoutInstagramCommand,
+        handlers.LogoutInstagramCommandHandler(factory=factory),
     )
     logger.debug("커맨드 핸들러 등록 완료")
 

@@ -72,7 +72,12 @@ class PlaywrightInstagramService(SearchPlatformService):
     @override
     @log_with_context(platform="instagram")
     async def search_and_find_posts(
-        self, index: int, keyword: Keyword, posts_to_find: list[Post], output_dir: Path
+        self,
+        index: int,
+        keyword: Keyword,
+        posts_to_find: list[Post],
+        output_dir: Path,
+        screenshot_all_posts: bool = False,
     ) -> SearchResult:
         from playwright.async_api import TimeoutError
 
@@ -154,37 +159,48 @@ class PlaywrightInstagramService(SearchPlatformService):
                     event_name="matching_completed",
                 )
 
-                # 매칭된 포스트가 있으면 하이라이트 적용
-                if found_posts_in_top9:
-                    logger.debug(
-                        "매칭된 포스트 하이라이트 적용",
-                        keyword=keyword.text,
-                        highlight_count=len(elements_to_highlight),
-                        event_name="highlight_start",
-                    )
-                    highlight_tasks = [
-                        search_page.highlight_element(element)
-                        for element in elements_to_highlight
-                    ]
-                    await asyncio.gather(*highlight_tasks)
-                    tracker.checkpoint("posts_highlighted")
+                # 스크린샷 촬영 여부 결정
+                should_take_screenshot = screenshot_all_posts or found_posts_in_top9
 
-                # 스크린샷은 매칭 여부와 관계없이 무조건 촬영
-                logger.debug(
-                    "스크린샷 촬영 시작",
-                    keyword=keyword.text,
-                    event_name="screenshot_start",
-                )
-                screenshot_path = await search_page.take_screenshot_of_results(
-                    index, keyword.text, output_dir
-                )
-                tracker.checkpoint("screenshot_taken")
-                logger.info(
-                    "스크린샷 촬영 완료",
-                    keyword=keyword.text,
-                    screenshot_path=str(screenshot_path),
-                    event_name="screenshot_completed",
-                )
+                if should_take_screenshot:
+                    # 매칭된 포스트가 있으면 하이라이트 적용
+                    if found_posts_in_top9:
+                        logger.debug(
+                            "매칭된 포스트 하이라이트 적용",
+                            keyword=keyword.text,
+                            highlight_count=len(elements_to_highlight),
+                            event_name="highlight_start",
+                        )
+                        highlight_tasks = [
+                            search_page.highlight_element(element)
+                            for element in elements_to_highlight
+                        ]
+                        await asyncio.gather(*highlight_tasks)
+                        tracker.checkpoint("posts_highlighted")
+
+                    logger.debug(
+                        "스크린샷 촬영 시작",
+                        keyword=keyword.text,
+                        screenshot_all_posts=screenshot_all_posts,
+                        event_name="screenshot_start",
+                    )
+                    screenshot_path = await search_page.take_screenshot_of_results(
+                        index, keyword.text, output_dir
+                    )
+                    tracker.checkpoint("screenshot_taken")
+                    logger.info(
+                        "스크린샷 촬영 완료",
+                        keyword=keyword.text,
+                        screenshot_path=str(screenshot_path),
+                        event_name="screenshot_completed",
+                    )
+                else:
+                    screenshot_path = None
+                    logger.info(
+                        "매칭된 포스트 없음 및 모든 포스트 옵션 미선택 - 스크린샷 생략",
+                        keyword=keyword.text,
+                        event_name="no_matches_no_screenshot",
+                    )
 
                 tracker.end()
                 return SearchResult(

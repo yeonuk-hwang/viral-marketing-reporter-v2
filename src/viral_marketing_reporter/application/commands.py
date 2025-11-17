@@ -18,6 +18,7 @@ class TaskDTO:
     keyword: str
     urls: list[str]
     platform: Platform
+    screenshot_all_posts: bool = False  # True면 모든 포스트, False면 상위 노출 포스트만
 
 
 @dataclass(frozen=True)
@@ -34,3 +35,10 @@ class ExecuteSearchTaskCommand(Command):
 
     job_id: uuid.UUID
     task_id: uuid.UUID
+
+
+@dataclass(frozen=True)
+class LogoutInstagramCommand(Command):
+    """Instagram 로그아웃을 요청하는 커맨드"""
+
+    pass

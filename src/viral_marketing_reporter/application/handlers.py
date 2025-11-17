@@ -9,6 +9,7 @@ from loguru import logger
 from viral_marketing_reporter.application.commands import (
     CreateSearchCommand,
     ExecuteSearchTaskCommand,
+    LogoutInstagramCommand,
 )
 from viral_marketing_reporter.application.queries import (
     GetJobResultQuery,
@@ -51,6 +52,7 @@ class CreateSearchCommandHandler:
                     keyword=Keyword(text=dto.keyword),
                     blog_posts_to_find=[Post(url=url) for url in dto.urls],
                     platform=dto.platform,
+                    screenshot_all_posts=dto.screenshot_all_posts,
                 )
                 for dto in command.tasks
             ]
@@ -164,6 +166,7 @@ class ExecuteSearchTaskCommandHandler:
                         keyword=task.keyword,
                         posts_to_find=task.blog_posts_to_find,
                         output_dir=output_dir,
+                        screenshot_all_posts=task.screenshot_all_posts,
                     )
                     job.update_task_result(task.task_id, result)
                     logger.info("Task completed successfully.")
@@ -271,3 +274,16 @@ class GetJobResultQueryHandler:
                     status=job.status.value,
                     tasks=task_dtos,
                 )
+
+
+class LogoutInstagramCommandHandler:
+    def __init__(self, factory: PlatformServiceFactory):
+        self.factory: Final = factory
+
+    async def handle(self, command: LogoutInstagramCommand):
+        logger.info("Handling LogoutInstagramCommand - clearing Instagram session.")
+        try:
+            await self.factory.logout_instagram()
+            logger.info("Instagram session cleared successfully.")
+        except Exception as e:
+            logger.error(f"Failed to logout Instagram: {str(e)}")

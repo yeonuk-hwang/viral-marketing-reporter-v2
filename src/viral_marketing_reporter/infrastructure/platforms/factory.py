@@ -139,6 +139,20 @@ class PlatformServiceFactory:
         )
         return service_class(page=page)
 
+    async def logout_instagram(self) -> None:
+        """Instagram 세션을 로그아웃하고 저장된 세션을 삭제합니다."""
+        if Platform.INSTAGRAM in self._auth_services:
+            auth_service = self._auth_services[Platform.INSTAGRAM]
+            # auth_service가 InstagramAuthService인 경우 clear_session 메서드 호출
+            if hasattr(auth_service, 'clear_session'):
+                auth_service.clear_session()
+                logger.info("Instagram session deleted successfully.")
+            # 인증된 Context도 정리
+            await auth_service.cleanup()
+            logger.info("Instagram authentication service cleaned up.")
+        else:
+            logger.warning("Instagram authentication service not found.")
+
     async def cleanup(self) -> None:
         """팩토리가 관리하는 모든 리소스를 정리합니다."""
         with log_step(

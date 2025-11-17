@@ -1,7 +1,10 @@
 import asyncio
 import os
+import platform as sys_platform
+import subprocess
 import time
 import uuid
+from pathlib import Path
 
 from loguru import logger
 from PySide6.QtCore import QSize, Qt, Slot
@@ -9,6 +12,7 @@ from PySide6.QtGui import QCloseEvent, QFont
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
+    QCheckBox,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -22,7 +26,11 @@ from PySide6.QtWidgets import (
 )
 from qasync import asyncSlot
 
-from viral_marketing_reporter.application.commands import CreateSearchCommand, TaskDTO
+from viral_marketing_reporter.application.commands import (
+    CreateSearchCommand,
+    LogoutInstagramCommand,
+    TaskDTO,
+)
 from viral_marketing_reporter.application.handlers import GetJobResultQueryHandler
 from viral_marketing_reporter.application.queries import GetJobResultQuery
 from viral_marketing_reporter.domain.events import JobCompleted, TaskCompleted
@@ -50,6 +58,7 @@ class MainWindow(QMainWindow):
         self.search_start_time: float | None = None
         self.results_dialog: ResultsDialog | None = None
         self.current_platform: Platform | None = None  # 현재 실행 중인 플랫폼
+        self.screenshot_all_posts: bool = False  # 모든 포스트 스크린샷 옵션
 
         self.setWindowTitle("Viral Marketing Reporter")
         self.setGeometry(100, 100, 800, 600)
@@ -150,7 +159,40 @@ class MainWindow(QMainWindow):
         )
         main_layout.addWidget(self.input_table)
 
+        # 스크린샷 옵션 체크박스
+        screenshot_option_layout = QHBoxLayout()
+        self.screenshot_all_checkbox = QCheckBox("상위 노출 포함 안 된 키워드 포함 (모든 게시물 스크린샷)")
+        self.screenshot_all_checkbox.setChecked(False)
+        self.screenshot_all_checkbox.stateChanged.connect(self.on_screenshot_option_changed)
+        screenshot_option_layout.addWidget(self.screenshot_all_checkbox)
+        screenshot_option_layout.addSpacerItem(
+            QSpacerItem(
+                40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum
+            )
+        )
+        main_layout.addLayout(screenshot_option_layout)
+
         button_layout = QHBoxLayout()
+        button_layout.setSpacing(5)
+
+        # 데이터 폴더 열기 버튼
+        self.open_data_folder_button = QPushButton("데이터 폴더 열기")
+        self.open_data_folder_button.setStyleSheet(
+            "QPushButton { background-color: #17a2b8; max-width: 150px; }"
+            "QPushButton:hover { background-color: #138496; }"
+        )
+        self.open_data_folder_button.clicked.connect(self.open_data_folder)
+        button_layout.addWidget(self.open_data_folder_button)
+
+        # Instagram 로그아웃 버튼
+        self.instagram_logout_button = QPushButton("Instagram 로그아웃")
+        self.instagram_logout_button.setStyleSheet(
+            "QPushButton { background-color: #dc3545; max-width: 150px; }"
+            "QPushButton:hover { background-color: #c82333; }"
+        )
+        self.instagram_logout_button.clicked.connect(self.logout_instagram)
+        button_layout.addWidget(self.instagram_logout_button)
+
         button_layout.addSpacerItem(
             QSpacerItem(
                 40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum
@@ -178,6 +220,48 @@ class MainWindow(QMainWindow):
         # Immediately exit the process without cleanup
         # This avoids Qt trying to destroy threads that are still running
         os._exit(0)
+
+    @Slot()
+    def on_screenshot_option_changed(self):
+        """스크린샷 옵션 변경 시 호출"""
+        self.screenshot_all_posts = self.screenshot_all_checkbox.isChecked()
+        logger.info(f"Screenshot option changed: {self.screenshot_all_posts}")
+
+    @Slot()
+    def open_data_folder(self):
+        """데이터 폴더 열기"""
+        try:
+            # 데이터 폴더 경로 구성
+            data_folder = Path.home() / "Downloads" / "viral-reporter"
+
+            if data_folder.exists():
+                logger.info(f"Opening data folder: {data_folder}")
+                if sys_platform.system() == "Darwin":
+                    subprocess.Popen(["open", str(data_folder)])
+                elif sys_platform.system() == "Windows":
+                    os.startfile(str(data_folder))
+                elif sys_platform.system() == "Linux":
+                    subprocess.Popen(["xdg-open", str(data_folder)])
+            else:
+                logger.warning("Data folder not found: ~/Downloads/viral-reporter/")
+        except Exception as e:
+            logger.error(f"Failed to open data folder: {str(e)}")
+
+    @asyncSlot()
+    async def logout_instagram(self):
+        """Instagram 로그아웃"""
+        logger.info("Instagram logout button clicked.")
+        try:
+            self.instagram_logout_button.setEnabled(False)
+            self.instagram_logout_button.setText("로그아웃 중...")
+            await self.message_bus.handle(LogoutInstagramCommand())
+            logger.info("Instagram logout completed.")
+            self.instagram_logout_button.setText("Instagram 로그아웃")
+            self.instagram_logout_button.setEnabled(True)
+        except Exception as e:
+            logger.error(f"Instagram logout failed: {str(e)}")
+            self.instagram_logout_button.setText("Instagram 로그아웃")
+            self.instagram_logout_button.setEnabled(True)
 
     @Slot()
     def clear_input_table(self):
@@ -219,7 +303,13 @@ class MainWindow(QMainWindow):
             return
 
         task_dtos = [
-            TaskDTO(index=i + 1, keyword=k, urls=urls, platform=platform)
+            TaskDTO(
+                index=i + 1,
+                keyword=k,
+                urls=urls,
+                platform=platform,
+                screenshot_all_posts=self.screenshot_all_posts,
+            )
             for i, k in enumerate(keywords)
         ]
 

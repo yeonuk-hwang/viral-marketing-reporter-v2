@@ -78,6 +78,7 @@ class SearchTask:
     keyword: Keyword
     blog_posts_to_find: list[Post]
     platform: Platform
+    screenshot_all_posts: bool = False
     status: TaskStatus = TaskStatus.PENDING
     result: SearchResult | None = None
     error_message: str | None = None
