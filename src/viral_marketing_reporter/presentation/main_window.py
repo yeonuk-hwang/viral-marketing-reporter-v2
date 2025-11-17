@@ -107,6 +107,16 @@ class MainWindow(QMainWindow):
         platform_button_layout.setSpacing(10)
 
         self.naver_blog_button = QPushButton("네이버 블로그 검색 시작")
+        self.naver_blog_button.setStyleSheet(
+            """
+            QPushButton {
+                background-color: #03C75A; color: white; border-radius: 5px;
+                padding: 10px; font-size: 16px; font-weight: bold;
+            }
+            QPushButton:hover { background-color: #02a84a; }
+            QPushButton:disabled { background-color: #cccccc; color: #666666; }
+            """
+        )
         self.naver_blog_button.clicked.connect(lambda: self.run_search(Platform.NAVER_BLOG))
         platform_button_layout.addWidget(self.naver_blog_button)
 
@@ -114,19 +124,10 @@ class MainWindow(QMainWindow):
         self.instagram_button.setStyleSheet(
             """
             QPushButton {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 #f09433, stop:0.25 #e6683c,
-                    stop:0.5 #dc2743, stop:0.75 #cc2366,
-                    stop:1 #bc1888);
-                color: white; border-radius: 5px;
+                background-color: #E4405F; color: white; border-radius: 5px;
                 padding: 10px; font-size: 16px; font-weight: bold;
             }
-            QPushButton:hover {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 #d17a2a, stop:0.25 #c75933,
-                    stop:0.5 #bd1e3a, stop:0.75 #ad1d57,
-                    stop:1 #9d0f6f);
-            }
+            QPushButton:hover { background-color: #c8306a; }
             QPushButton:disabled { background-color: #cccccc; color: #666666; }
             """
         )
@@ -187,8 +188,8 @@ class MainWindow(QMainWindow):
         # Instagram 로그아웃 버튼
         self.instagram_logout_button = QPushButton("Instagram 로그아웃")
         self.instagram_logout_button.setStyleSheet(
-            "QPushButton { background-color: #dc3545; max-width: 150px; }"
-            "QPushButton:hover { background-color: #c82333; }"
+            "QPushButton { background-color: #E4405F; max-width: 150px; }"
+            "QPushButton:hover { background-color: #c8306a; }"
         )
         self.instagram_logout_button.clicked.connect(self.logout_instagram)
         button_layout.addWidget(self.instagram_logout_button)
