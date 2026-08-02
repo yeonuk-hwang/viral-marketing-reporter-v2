@@ -109,16 +109,16 @@ class PlaywrightInstagramService(SearchPlatformService):
                     tracker.end()
                     return SearchResult(found_posts=[], screenshot=None)
 
-                top_9_posts = await search_page.get_top_9_posts()
-                tracker.checkpoint("top_9_posts_retrieved")
+                top_10_posts = await search_page.get_top_10_posts()
+                tracker.checkpoint("top_10_posts_retrieved")
                 logger.debug(
-                    f"상위 포스트 {len(top_9_posts)}개 발견",
+                    f"상위 포스트 {len(top_10_posts)}개 발견",
                     keyword=keyword.text,
-                    post_count=len(top_9_posts),
+                    post_count=len(top_10_posts),
                     event_name="posts_retrieved",
                 )
 
-                if not top_9_posts:
+                if not top_10_posts:
                     logger.error(
                         "포스트 요소를 찾을 수 없음",
                         keyword=keyword.text,
@@ -131,7 +131,7 @@ class PlaywrightInstagramService(SearchPlatformService):
                     tracker.end()
                     return SearchResult(found_posts=[], screenshot=None)
 
-                # 상위 9개 포스트에서 찾아야 할 URL이 있는지 확인
+                # 상위 10개 포스트에서 찾아야 할 URL이 있는지 확인
                 logger.debug(
                     "포스트 매칭 시작",
                     keyword=keyword.text,
@@ -139,32 +139,32 @@ class PlaywrightInstagramService(SearchPlatformService):
                 )
                 tasks = [
                     self._get_matching_post_if_found(post_link, posts_to_find)
-                    for post_link in top_9_posts
+                    for post_link in top_10_posts
                 ]
                 matching_results = await asyncio.gather(*tasks)
                 tracker.checkpoint("posts_matched")
 
-                found_posts_in_top9: list[Post] = [
+                found_posts_in_top10: list[Post] = [
                     post for post in matching_results if post
                 ]
                 elements_to_highlight: list[Locator] = [
-                    top_9_posts[i] for i, post in enumerate(matching_results) if post
+                    top_10_posts[i] for i, post in enumerate(matching_results) if post
                 ]
 
                 logger.info(
                     f"포스트 매칭 완료",
                     keyword=keyword.text,
-                    found_count=len(found_posts_in_top9),
+                    found_count=len(found_posts_in_top10),
                     target_count=len(posts_to_find),
                     event_name="matching_completed",
                 )
 
                 # 스크린샷 촬영 여부 결정
-                should_take_screenshot = screenshot_all_posts or found_posts_in_top9
+                should_take_screenshot = screenshot_all_posts or found_posts_in_top10
 
                 if should_take_screenshot:
                     # 매칭된 포스트가 있으면 하이라이트 적용
-                    if found_posts_in_top9:
+                    if found_posts_in_top10:
                         logger.debug(
                             "매칭된 포스트 하이라이트 적용",
                             keyword=keyword.text,
@@ -204,7 +204,7 @@ class PlaywrightInstagramService(SearchPlatformService):
 
                 tracker.end()
                 return SearchResult(
-                    found_posts=found_posts_in_top9,
+                    found_posts=found_posts_in_top10,
                     screenshot=Screenshot(file_path=screenshot_path),
                 )
             except TimeoutError as e:

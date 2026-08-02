@@ -21,6 +21,9 @@ from viral_marketing_reporter.infrastructure.logging_utils import (
 class InstagramSearchPage:
     """Instagram 키워드 검색 결과 페이지에 대한 상호작용을 캡슐화합니다."""
 
+    POST_SELECTOR = 'a[href*="/p/"], a[href*="/reel/"]'
+    SCREENSHOT_POST_COUNT = 10
+
     def __init__(self, page: Page):
         self.page: Page = page
 
@@ -50,7 +53,7 @@ class InstagramSearchPage:
             keyword=keyword,
             event_name="wait_for_posts",
         )
-        await self.page.locator('a[href*="/p/"], a[href*="/reel/"]').first.wait_for(
+        await self.page.locator(self.POST_SELECTOR).first.wait_for(
             state="visible", timeout=60 * 1000
         )
         logger.debug(
@@ -65,14 +68,90 @@ class InstagramSearchPage:
         no_results_locator = self.page.get_by_text("No results found")
         return await no_results_locator.is_visible()
 
-    async def get_top_9_posts(self) -> list[Locator]:
-        """상위 9개의 포스트 링크를 가져옵니다.
+    async def get_top_10_posts(self) -> list[Locator]:
+        """5열 레이아웃의 상위 10개 포스트 링크(2줄)를 가져옵니다.
 
-        Instagram은 한 줄에 3개씩 표시되므로 상위 9개 = 3줄입니다.
+        포스트와 릴스 링크를 모두 포함합니다.
         """
-        # 포스트와 릴스 링크를 모두 선택
-        post_links = await self.page.locator('a[href*="/p/"], a[href*="/reel/"]').all()
-        return post_links[:9]
+        post_links = await self.page.locator(self.POST_SELECTOR).all()
+        return post_links[: self.SCREENSHOT_POST_COUNT]
+
+    async def _wait_for_post_media(self) -> dict[str, int]:
+        """상위 포스트의 이미지 및 비디오 첫 프레임이 렌더링될 때까지 기다립니다."""
+        return await self.page.evaluate(
+            """
+            async ({postSelector, postCount, timeout}) => {
+                const posts = [...document.querySelectorAll(postSelector)].slice(0, postCount);
+                const media = posts.flatMap(post => [...post.querySelectorAll('img, video')]);
+
+                const waitWithTimeout = (promise) => Promise.race([
+                    promise,
+                    new Promise(resolve => setTimeout(() => resolve(false), timeout)),
+                ]);
+
+                const waitForImage = async (img) => {
+                    if (!(img.complete && img.naturalWidth > 0)) {
+                        await waitWithTimeout(new Promise(resolve => {
+                            img.addEventListener('load', () => resolve(true), {once: true});
+                            img.addEventListener('error', () => resolve(false), {once: true});
+                        }));
+                    }
+                    if (img.complete && img.naturalWidth > 0 && img.decode) {
+                        await waitWithTimeout(img.decode().then(() => true).catch(() => false));
+                    }
+                    return img.complete && img.naturalWidth > 0;
+                };
+
+                const waitForVideo = async (video) => {
+                    video.muted = true;
+                    video.playsInline = true;
+                    video.preload = 'auto';
+
+                    if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || !video.videoWidth) {
+                        await waitWithTimeout(new Promise(resolve => {
+                            const done = () => resolve(true);
+                            video.addEventListener('loadeddata', done, {once: true});
+                            video.addEventListener('canplay', done, {once: true});
+                            video.addEventListener('error', () => resolve(false), {once: true});
+                            video.load();
+                        }));
+                    }
+
+                    if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.videoWidth) {
+                        try {
+                            await waitWithTimeout(video.play().then(() => true).catch(() => false));
+                            await waitWithTimeout(new Promise(resolve => {
+                                if (video.requestVideoFrameCallback) {
+                                    video.requestVideoFrameCallback(() => resolve(true));
+                                } else {
+                                    requestAnimationFrame(() => requestAnimationFrame(() => resolve(true)));
+                                }
+                            }));
+                        } finally {
+                            video.pause();
+                        }
+                    }
+                    return video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.videoWidth > 0;
+                };
+
+                const results = await Promise.all(media.map(element =>
+                    element instanceof HTMLVideoElement
+                        ? waitForVideo(element)
+                        : waitForImage(element)
+                ));
+                return {
+                    total: media.length,
+                    videos: media.filter(element => element instanceof HTMLVideoElement).length,
+                    ready: results.filter(Boolean).length,
+                };
+            }
+            """,
+            {
+                "postSelector": self.POST_SELECTOR,
+                "postCount": self.SCREENSHOT_POST_COUNT,
+                "timeout": 15_000,
+            },
+        )
 
     async def highlight_element(self, element: Locator) -> None:
         """주어진 요소에 빨간색 테두리를 적용합니다."""
@@ -84,7 +163,7 @@ class InstagramSearchPage:
     async def take_screenshot_of_results(
         self, index: int, keyword: str, output_dir: Path
     ) -> Path:
-        """검색 결과 페이지의 상위 9개 포스트 영역을 스크린샷으로 찍고 파일 경로를 반환합니다."""
+        """검색 결과 페이지의 상위 10개 포스트 영역을 스크린샷으로 찍고 파일 경로를 반환합니다."""
         tracker = PerformanceTracker(f"instagram_screenshot_{keyword}")
         tracker.start()
 
@@ -93,8 +172,8 @@ class InstagramSearchPage:
             keyword=keyword,
             index=index,
         ):
-            top_9_posts = await self.get_top_9_posts()
-            if not top_9_posts:
+            top_10_posts = await self.get_top_10_posts()
+            if not top_10_posts:
                 logger.error(
                     "포스트를 찾지 못해 스크린샷 불가",
                     keyword=keyword,
@@ -103,9 +182,9 @@ class InstagramSearchPage:
                 raise ScreenshotTargetMissingError("포스트를 찾지 못했습니다.")
 
             logger.debug(
-                f"상위 {len(top_9_posts)}개 포스트 발견",
+                f"상위 {len(top_10_posts)}개 포스트 발견",
                 keyword=keyword,
-                post_count=len(top_9_posts),
+                post_count=len(top_10_posts),
                 event_name="posts_found_for_screenshot",
             )
 
@@ -115,7 +194,7 @@ class InstagramSearchPage:
                 keyword=keyword,
                 event_name="scroll_to_last_post",
             )
-            last_post = top_9_posts[-1]
+            last_post = top_10_posts[-1]
             await last_post.scroll_into_view_if_needed()
             await self.page.wait_for_timeout(2000)  # lazy loading 대기
             tracker.checkpoint("scrolled_to_bottom")
@@ -130,34 +209,19 @@ class InstagramSearchPage:
             await self.page.wait_for_timeout(2000)  # 스크롤 안정화 및 이미지 로딩 대기
             tracker.checkpoint("scrolled_to_top")
 
-            # 이미지들이 실제로 렌더링될 때까지 대기
+            # 이미지와 비디오 첫 프레임이 실제로 렌더링될 때까지 대기
             logger.debug(
-                "이미지 로딩 대기 중",
+                "포스트 미디어 로딩 대기 중",
                 keyword=keyword,
-                event_name="wait_for_images",
+                event_name="wait_for_media",
             )
-            await self.page.evaluate("""
-                async () => {
-                    const images = document.querySelectorAll('img');
-                    const timeout = 5000;
-                    const start = Date.now();
-
-                    for (const img of images) {
-                        while (Date.now() - start < timeout) {
-                            // 이미지가 로드되고 실제 크기를 가지고 있는지 확인
-                            if (img.complete && img.naturalWidth > 0) {
-                                break;
-                            }
-                            await new Promise(resolve => setTimeout(resolve, 100));
-                        }
-                    }
-                }
-            """)
-            tracker.checkpoint("images_loaded")
+            media_status = await self._wait_for_post_media()
+            tracker.checkpoint("media_loaded")
             logger.debug(
-                "이미지 로딩 완료",
+                "포스트 미디어 로딩 완료",
                 keyword=keyword,
-                event_name="images_loaded",
+                **media_status,
+                event_name="media_loaded",
             )
 
             # 최종 안정화 대기
@@ -170,7 +234,7 @@ class InstagramSearchPage:
                 event_name="collect_bounding_boxes",
             )
             boxes = []
-            for post in top_9_posts:
+            for post in top_10_posts:
                 box = await post.bounding_box()
                 if box:
                     boxes.append(box)
@@ -216,7 +280,7 @@ class InstagramSearchPage:
                 rightmost_box["x"] + rightmost_box["width"] - first_post_box["x"]
             )
 
-            # clip 높이: 9번째(마지막) 포스트까지만
+            # clip 높이: 10번째(마지막) 포스트까지만
             clip_height = last_post_box["y"] + last_post_box["height"]
 
             # viewport 높이: 메시지 팝업 고려하여 여유 추가
@@ -246,7 +310,7 @@ class InstagramSearchPage:
                 )
                 tracker.checkpoint("viewport_adjusted")
 
-            # 스크린샷 영역 설정 (페이지 최상단부터 9번째 포스트까지)
+            # 스크린샷 영역 설정 (페이지 최상단부터 10번째 포스트까지)
             clip: FloatRect = {
                 "x": first_post_box["x"] - SCREENSHOT_MARGIN,
                 "y": 0,  # 최상단부터 (키워드 포함)

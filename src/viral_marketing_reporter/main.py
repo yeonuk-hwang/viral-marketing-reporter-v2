@@ -9,7 +9,10 @@ from qasync import QEventLoop
 
 from viral_marketing_reporter import bootstrap
 from viral_marketing_reporter.domain.events import JobCompleted, TaskCompleted
-from viral_marketing_reporter.infrastructure.context import ApplicationContext
+from viral_marketing_reporter.infrastructure.context import (
+    ApplicationContext,
+    ChromeNotInstalledError,
+)
 from viral_marketing_reporter.infrastructure.environment import (
     get_environment_info,
     format_environment_info,
@@ -142,6 +145,13 @@ def main():
         loop = QEventLoop(app)
         asyncio.set_event_loop(loop)
         loop.run_until_complete(run_app(app))
+    except ChromeNotInstalledError as error:
+        logger.error(str(error))
+        QMessageBox.critical(
+            None,
+            "Google Chrome 설치 필요",
+            f"{error}\n\n설치 후 프로그램을 다시 실행해주세요.",
+        )
     except (KeyboardInterrupt, SystemExit):
         logger.info("Application interrupted. Exiting.")
     except Exception:
