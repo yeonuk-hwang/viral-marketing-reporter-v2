@@ -7,10 +7,11 @@ from loguru import logger
 from playwright.async_api import Browser, BrowserContext, Page
 
 from viral_marketing_reporter.infrastructure.logging_utils import (
+    PerformanceTracker,
     log_function_call,
     log_step,
-    PerformanceTracker,
 )
+from viral_marketing_reporter.infrastructure.context import require_google_chrome
 from viral_marketing_reporter.infrastructure.platforms.authentication import (
     PlatformAuthenticationService,
 )
@@ -24,6 +25,8 @@ class InstagramAuthService(PlatformAuthenticationService):
     - 필요 시 headful 브라우저로 로그인 창 표시
     - BrowserContext 캐싱 및 재사용
     """
+
+    AUTHENTICATED_UI_SELECTOR = 'svg[aria-label="New post"]'
 
     def __init__(self, browser: Browser, storage_path: Path | None = None):
         """
@@ -164,9 +167,8 @@ class InstagramAuthService(PlatformAuthenticationService):
     async def _is_session_valid(self, context: BrowserContext) -> bool:
         """현재 세션이 유효한지 Instagram 페이지에 접속해서 확인합니다."""
         with log_step("Instagram 세션 유효성 검증"):
+            page: Page | None = None
             try:
-                import re
-
                 page = await context.new_page()
                 logger.debug(
                     "Instagram 홈페이지로 이동하여 세션 검증 시작",
@@ -174,33 +176,36 @@ class InstagramAuthService(PlatformAuthenticationService):
                 )
                 await page.goto("https://www.instagram.com/", timeout=30000)
 
-                # 로그인되어 있으면 Profile 텍스트가 있음
-                try:
-                    await page.get_by_text(re.compile("profile", re.IGNORECASE)).wait_for(
-                        timeout=10000, state="visible"
-                    )
-                    await page.close()
-                    logger.info(
-                        "세션 유효성 검증 성공 - 로그인 상태 확인됨",
-                        event_name="session_valid",
-                    )
-                    return True
-                except Exception:
-                    await page.close()
-                    logger.warning(
-                        "세션 유효성 검증 실패 - Profile 텍스트 미발견",
-                        event_name="session_invalid",
-                    )
-                    return False
+                await self._wait_for_authenticated_ui(page, timeout_ms=10_000)
+
+                # Instagram이 검증 요청 중 갱신한 쿠키도 다음 실행에 유지합니다.
+                await context.storage_state(path=str(self.storage_path))
+                logger.info(
+                    "세션 유효성 검증 성공 - 인증 UI 확인됨",
+                    event_name="session_valid",
+                )
+                return True
 
             except Exception as e:
                 logger.warning(
-                    "세션 유효성 검증 중 오류",
+                    "세션 유효성 검증 실패 - 인증 UI 미발견",
                     error=str(e),
                     error_type=e.__class__.__name__,
-                    event_name="session_validation_error",
+                    event_name="session_invalid",
                 )
                 return False
+            finally:
+                if page and not page.is_closed():
+                    await page.close()
+
+    async def _wait_for_authenticated_ui(
+        self, page: Page, timeout_ms: int
+    ) -> None:
+        """로그인 사용자에게만 표시되는 UI가 나타날 때까지 기다립니다."""
+        await page.locator(self.AUTHENTICATED_UI_SELECTOR).first.wait_for(
+            state="visible",
+            timeout=timeout_ms,
+        )
 
     @log_function_call
     async def _show_login_dialog(self) -> bool:
@@ -222,6 +227,7 @@ class InstagramAuthService(PlatformAuthenticationService):
                 # headful 브라우저 실행 (자동화 감지 우회)
                 browser = await playwright.chromium.launch(
                     headless=False,
+                    executable_path=require_google_chrome(),
                     args=[
                         "--disable-blink-features=AutomationControlled",
                     ],
@@ -293,12 +299,13 @@ class InstagramAuthService(PlatformAuthenticationService):
             return success
 
     @log_function_call
-    async def _wait_for_login_completion(self, page: Page, timeout: int = 300) -> bool:
-        """로그인 완료를 감지합니다.
+    async def _wait_for_login_completion(
+        self,
+        page: Page,
+        timeout: int = 300,
+    ) -> bool:
+        """New post 아이콘 표시 여부로 로그인 완료를 감지합니다."""
 
-        로그인 후 URL이 변경되고 "Profile" 텍스트가 나타나는지 확인합니다.
-        타임아웃: 5분 (300초)
-        """
         with log_step("로그인 완료 대기", timeout_seconds=timeout):
             try:
                 logger.info(
@@ -307,38 +314,30 @@ class InstagramAuthService(PlatformAuthenticationService):
                     event_name="login_wait_start",
                 )
 
-                # 로그인 완료 시 "Profile" 또는 프로필 관련 텍스트가 나타날 때까지 대기
-                import re
+                await self._wait_for_authenticated_ui(
+                    page,
+                    timeout_ms=timeout * 1000,
+                )
 
-                try:
-                    # Profile, Home, Search 등 로그인 후 나타나는 텍스트 찾기
-                    await page.get_by_text(re.compile("profile", re.IGNORECASE)).wait_for(
-                        timeout=timeout * 1000, state="visible"
-                    )
-                    logger.info(
-                        "프로필 요소 감지 - 로그인 성공",
-                        event_name="profile_element_detected",
-                    )
-                except Exception as e:
-                    logger.warning(
-                        "프로필 텍스트 미발견 (타임아웃)",
-                        error=str(e),
-                        error_type=e.__class__.__name__,
-                        event_name="profile_element_not_found",
-                    )
+                logger.info(
+                    "New post 아이콘 감지 - 로그인 성공",
+                    event_name="new_post_icon_detected",
+                )
 
-                # 3단계: 팝업 자동 닫기 (선택사항)
                 await self._dismiss_popups(page)
 
-                logger.info("로그인 완료 감지 성공", event_name="login_completed")
+                logger.info(
+                    "로그인 완료 감지 성공",
+                    event_name="login_completed",
+                )
                 return True
 
             except Exception as e:
-                logger.error(
-                    "로그인 완료 대기 중 오류",
+                logger.warning(
+                    "New post 아이콘 미발견 - 로그인 미완료",
                     error=str(e),
                     error_type=e.__class__.__name__,
-                    event_name="login_wait_error",
+                    event_name="new_post_icon_not_found",
                 )
                 return False
 
