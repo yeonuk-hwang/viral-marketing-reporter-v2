@@ -230,10 +230,12 @@ class InstagramAuthService(PlatformAuthenticationService):
                     executable_path=require_google_chrome(),
                     args=[
                         "--disable-blink-features=AutomationControlled",
+                        "--start-maximized",
                     ],
                 )
                 context = await browser.new_context(
-                    viewport={"width": 1920, "height": 1080},
+                    # 로그인 창은 실제 Chrome 창 크기를 따르고 Playwright viewport를 강제하지 않습니다.
+                    no_viewport=True,
                     locale="en-GB",
                     user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
                 )
