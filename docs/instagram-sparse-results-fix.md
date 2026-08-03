@@ -61,18 +61,18 @@ Screenshot(file_path=None)
 
 따라서 결과 없음은 timeout 오류가 아니라 정상적인 빈 `SearchResult`가 된다.
 
-### 실제 box 범위 기반 동적 clip
+### 실제 box 기준 5열 x 2행 고정 clip
 
-1개부터 10개까지 동일한 계산 함수를 사용한다.
+1개부터 10개까지 게시물 개수와 관계없이 상위 10개 규격인 5열 x 2행을 유지한다.
 
-- 첫 행: 가장 작은 y 좌표 기준
-- 왼쪽: 첫 행 box의 최소 x
-- 오른쪽: 첫 행 box의 최대 `x + width`
-- 아래쪽: 모든 box의 최대 `y + height`
+- 첫 행의 실제 box에서 게시물 너비와 열 간격 계산
+- 둘째 행이 있으면 실제 행 간격을 사용하고, 없으면 기본 4px 간격 적용
+- 오른쪽: 다섯 번째 열의 끝까지 확장
+- 아래쪽: 두 번째 행의 끝까지 확장
 - clip x: 음수가 되지 않도록 0으로 제한
 - 좌우 20px 여백 적용
 
-게시물 개수나 DOM 목록의 마지막 항목에 의존하지 않는다.
+게시물이 1~5개뿐이면 나머지 칸은 흰 여백으로 남는다. 따라서 검색 결과 수가 달라도 보고서에 들어가는 Instagram 스크린샷 크기가 일정하며, 게시물의 실제 위치는 바꾸지 않는다.
 
 ### 캡처 없음 표현 수정
 
@@ -89,7 +89,9 @@ screenshot = Screenshot(file_path=screenshot_path) if screenshot_path else None
 - 1개 게시물 clip
 - 2개 게시물 clip
 - 3개 게시물 clip
+- 5개 게시물 clip
 - 10개 게시물 clip
+- 1개 게시물만 있을 때 기본 간격으로 5열 x 2행 추론
 - 2개의 희소 검색 결과에 대상 매칭이 없을 때 `screenshot is None`
 - 캡처 함수가 불필요하게 호출되지 않음
 
@@ -117,3 +119,4 @@ uv run python scripts/diagnose_instagram_sparse_results.py --all-keywords
 ```
 
 두 대상 릴스 URL이 모두 반환됐으며 스크린샷 파일도 정상 생성됐다.
+게시물이 2개뿐인 실제 결과도 `1460 x 835` 크기로 저장되어, 10개 결과와 같은 5열 x 2행 캔버스를 유지했다.

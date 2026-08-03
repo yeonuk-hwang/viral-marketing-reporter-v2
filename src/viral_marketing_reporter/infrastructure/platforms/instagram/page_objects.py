@@ -25,6 +25,9 @@ class InstagramSearchPage:
     SCREENSHOT_POST_COUNT = 10
     SCREENSHOT_MARGIN = 20
     ROW_Y_THRESHOLD = 20
+    GRID_COLUMNS = 5
+    GRID_ROWS = 2
+    GRID_GAP = 4
 
     def __init__(self, page: Page):
         self.page: Page = page
@@ -75,7 +78,7 @@ class InstagramSearchPage:
 
     @classmethod
     def _calculate_screenshot_clip(cls, boxes: list[FloatRect]) -> FloatRect:
-        """실제로 표시된 1~10개 게시물의 전체 영역을 안전하게 계산합니다."""
+        """게시물 수와 관계없이 5열 x 2행 크기의 캡처 영역을 계산합니다."""
         if not boxes:
             raise ScreenshotTargetMissingError(
                 "포스트의 위치를 찾을 수 없어 스크린샷 영역을 계산할 수 없습니다."
@@ -87,9 +90,30 @@ class InstagramSearchPage:
             for box in boxes
             if abs(box["y"] - first_row_y) < cls.ROW_Y_THRESHOLD
         ]
-        left = min(box["x"] for box in first_row_boxes)
-        right = max(box["x"] + box["width"] for box in first_row_boxes)
-        bottom = max(box["y"] + box["height"] for box in boxes)
+        first_row_boxes.sort(key=lambda box: box["x"])
+        first_box = first_row_boxes[0]
+        left = first_box["x"]
+        post_width = first_box["width"]
+        post_height = first_box["height"]
+
+        column_pitch = (
+            first_row_boxes[1]["x"] - first_box["x"]
+            if len(first_row_boxes) > 1
+            else post_width + cls.GRID_GAP
+        )
+        second_row_boxes = [
+            box
+            for box in boxes
+            if box["y"] - first_row_y >= cls.ROW_Y_THRESHOLD
+        ]
+        row_pitch = (
+            min(box["y"] for box in second_row_boxes) - first_row_y
+            if second_row_boxes
+            else post_height + cls.GRID_GAP
+        )
+
+        right = left + (cls.GRID_COLUMNS - 1) * column_pitch + post_width
+        bottom = first_row_y + (cls.GRID_ROWS - 1) * row_pitch + post_height
         clip_x = max(0, left - cls.SCREENSHOT_MARGIN)
 
         return {

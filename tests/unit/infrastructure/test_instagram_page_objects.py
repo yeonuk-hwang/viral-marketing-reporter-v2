@@ -40,8 +40,8 @@ async def test_wait_for_post_media_waits_for_video_frame() -> None:
     }
 
 
-@pytest.mark.parametrize("post_count", [1, 2, 3, 10])
-def test_screenshot_clip_supports_partial_result_grids(post_count: int) -> None:
+@pytest.mark.parametrize("post_count", [1, 2, 3, 5, 10])
+def test_screenshot_clip_uses_fixed_two_row_grid(post_count: int) -> None:
     boxes = [
         {
             "x": 20.0 + (index % 5) * 284.0,
@@ -54,7 +54,14 @@ def test_screenshot_clip_supports_partial_result_grids(post_count: int) -> None:
 
     clip = InstagramSearchPage._calculate_screenshot_clip(boxes)
 
-    expected_columns = min(post_count, 5)
     assert clip["x"] == 0
-    assert clip["width"] == 36.0 + expected_columns * 284.0
-    assert clip["height"] == boxes[-1]["y"] + boxes[-1]["height"]
+    assert clip["width"] == 1456.0
+    assert clip["height"] == 835.0
+
+
+def test_screenshot_clip_infers_grid_from_single_post() -> None:
+    clip = InstagramSearchPage._calculate_screenshot_clip(
+        [{"x": 20.0, "y": 83.0, "width": 280.0, "height": 374.0}]
+    )
+
+    assert clip == {"x": 0, "y": 0, "width": 1456.0, "height": 835.0}
