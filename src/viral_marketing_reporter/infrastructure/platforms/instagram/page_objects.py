@@ -23,6 +23,8 @@ class InstagramSearchPage:
 
     POST_SELECTOR = 'a[href*="/p/"], a[href*="/reel/"]'
     SCREENSHOT_POST_COUNT = 10
+    SCREENSHOT_MARGIN = 20
+    ROW_Y_THRESHOLD = 20
 
     def __init__(self, page: Page):
         self.page: Page = page
@@ -53,20 +55,49 @@ class InstagramSearchPage:
             keyword=keyword,
             event_name="wait_for_posts",
         )
-        await self.page.locator(self.POST_SELECTOR).first.wait_for(
+        posts_or_empty = self.page.locator(self.POST_SELECTOR).first.or_(
+            self.page.get_by_text("No results found").first
+        )
+        await posts_or_empty.wait_for(
             state="visible", timeout=60 * 1000
         )
         logger.debug(
-            "포스트 요소 로드 완료",
+            "검색 결과 상태 확인 완료",
             keyword=keyword,
-            event_name="posts_visible",
+            event_name="search_result_ready",
         )
 
     async def is_result_empty(self) -> bool:
         """검색 결과가 없는지 확인합니다."""
         # Instagram에서 결과가 없을 때 표시되는 메시지 확인
-        no_results_locator = self.page.get_by_text("No results found")
+        no_results_locator = self.page.get_by_text("No results found").first
         return await no_results_locator.is_visible()
+
+    @classmethod
+    def _calculate_screenshot_clip(cls, boxes: list[FloatRect]) -> FloatRect:
+        """실제로 표시된 1~10개 게시물의 전체 영역을 안전하게 계산합니다."""
+        if not boxes:
+            raise ScreenshotTargetMissingError(
+                "포스트의 위치를 찾을 수 없어 스크린샷 영역을 계산할 수 없습니다."
+            )
+
+        first_row_y = min(box["y"] for box in boxes)
+        first_row_boxes = [
+            box
+            for box in boxes
+            if abs(box["y"] - first_row_y) < cls.ROW_Y_THRESHOLD
+        ]
+        left = min(box["x"] for box in first_row_boxes)
+        right = max(box["x"] + box["width"] for box in first_row_boxes)
+        bottom = max(box["y"] + box["height"] for box in boxes)
+        clip_x = max(0, left - cls.SCREENSHOT_MARGIN)
+
+        return {
+            "x": clip_x,
+            "y": 0,
+            "width": right + cls.SCREENSHOT_MARGIN - clip_x,
+            "height": bottom,
+        }
 
     async def get_top_10_posts(self) -> list[Locator]:
         """5열 레이아웃의 상위 10개 포스트 링크(2줄)를 가져옵니다.
@@ -256,41 +287,17 @@ class InstagramSearchPage:
                 event_name="boxes_collected",
             )
 
-            first_post_box = boxes[0]
-            last_post_box = boxes[-1]
-
-            # 첫 번째 줄의 포스트들을 찾기 (y 좌표가 비슷한 포스트들)
-            Y_THRESHOLD = 20  # y 좌표 허용 오차
-            first_row_boxes = [
-                box for box in boxes
-                if abs(box["y"] - first_post_box["y"]) < Y_THRESHOLD
-            ]
-
-            # 첫 번째 줄에서 가장 오른쪽 포스트 찾기
-            rightmost_box = max(
-                first_row_boxes,
-                key=lambda box: box["x"] + box["width"]
-            )
-
-            SCREENSHOT_MARGIN = 20
             BOTTOM_PADDING = 100  # viewport 여유 공간 (메시지 팝업 고려)
-
-            # 전체 너비 계산: 첫 번째 포스트부터 첫 줄의 가장 오른쪽 포스트까지
-            total_width = (
-                rightmost_box["x"] + rightmost_box["width"] - first_post_box["x"]
-            )
-
-            # clip 높이: 10번째(마지막) 포스트까지만
-            clip_height = last_post_box["y"] + last_post_box["height"]
+            clip = self._calculate_screenshot_clip(boxes)
 
             # viewport 높이: 메시지 팝업 고려하여 여유 추가
-            viewport_height = clip_height + BOTTOM_PADDING
+            viewport_height = clip["height"] + BOTTOM_PADDING
 
             logger.debug(
                 "스크린샷 영역 계산 완료",
                 keyword=keyword,
-                total_width=total_width,
-                clip_height=clip_height,
+                total_width=clip["width"],
+                clip_height=clip["height"],
                 viewport_height=viewport_height,
                 event_name="screenshot_dimensions_calculated",
             )
@@ -309,14 +316,6 @@ class InstagramSearchPage:
                     {"width": original_viewport["width"], "height": int(viewport_height)}
                 )
                 tracker.checkpoint("viewport_adjusted")
-
-            # 스크린샷 영역 설정 (페이지 최상단부터 10번째 포스트까지)
-            clip: FloatRect = {
-                "x": first_post_box["x"] - SCREENSHOT_MARGIN,
-                "y": 0,  # 최상단부터 (키워드 포함)
-                "width": total_width + SCREENSHOT_MARGIN * 2,
-                "height": clip_height,
-            }
 
             output_dir.mkdir(parents=True, exist_ok=True)
             file_name = f"{index}_{keyword.replace(' ', '_')}.png"

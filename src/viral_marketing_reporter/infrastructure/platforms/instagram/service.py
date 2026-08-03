@@ -205,7 +205,11 @@ class PlaywrightInstagramService(SearchPlatformService):
                 tracker.end()
                 return SearchResult(
                     found_posts=found_posts_in_top10,
-                    screenshot=Screenshot(file_path=screenshot_path),
+                    screenshot=(
+                        Screenshot(file_path=screenshot_path)
+                        if screenshot_path
+                        else None
+                    ),
                 )
             except TimeoutError as e:
                 logger.exception(

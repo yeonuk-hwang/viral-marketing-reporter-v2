@@ -38,3 +38,23 @@ async def test_wait_for_post_media_waits_for_video_frame() -> None:
         "postCount": 10,
         "timeout": 15_000,
     }
+
+
+@pytest.mark.parametrize("post_count", [1, 2, 3, 10])
+def test_screenshot_clip_supports_partial_result_grids(post_count: int) -> None:
+    boxes = [
+        {
+            "x": 20.0 + (index % 5) * 284.0,
+            "y": 83.0 + (index // 5) * 378.0,
+            "width": 280.0,
+            "height": 374.0,
+        }
+        for index in range(post_count)
+    ]
+
+    clip = InstagramSearchPage._calculate_screenshot_clip(boxes)
+
+    expected_columns = min(post_count, 5)
+    assert clip["x"] == 0
+    assert clip["width"] == 36.0 + expected_columns * 284.0
+    assert clip["height"] == boxes[-1]["y"] + boxes[-1]["height"]
