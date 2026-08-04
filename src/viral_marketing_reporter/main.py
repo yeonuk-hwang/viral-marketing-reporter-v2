@@ -1,7 +1,6 @@
 import asyncio
 import signal
 import sys
-from pathlib import Path
 
 from loguru import logger
 from PySide6.QtWidgets import QApplication, QMessageBox
@@ -18,6 +17,7 @@ from viral_marketing_reporter.infrastructure.environment import (
     format_environment_info,
 )
 from viral_marketing_reporter.infrastructure.message_bus import FunctionHandler
+from viral_marketing_reporter.infrastructure.paths import get_log_file_path
 from viral_marketing_reporter.presentation.main_window import MainWindow
 
 # --- 로깅 설정 ---
@@ -29,7 +29,7 @@ if sys.stderr:
         level="DEBUG",
         format="<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level> | <yellow>{extra}</yellow>",
     )
-log_file_path = Path.home() / "Downloads" / "viral-reporter" / "debug.log"
+log_file_path = get_log_file_path()
 log_file_path.parent.mkdir(parents=True, exist_ok=True)
 logger.add(
     log_file_path,
@@ -40,6 +40,14 @@ logger.add(
     backtrace=True,
     diagnose=True,
     serialize=True,
+)
+logger.info(
+    "파일 로깅 초기화 완료",
+    log_file_path=str(log_file_path),
+    rotation="10 MB",
+    retention="7 days",
+    serialized=True,
+    event_name="file_logging_ready",
 )
 
 
@@ -70,6 +78,13 @@ async def run_app(app: QApplication):
 
     context = ApplicationContext()
     await context.__aenter__()
+    logger.info(
+        "브라우저 실행 환경 준비 완료",
+        browser_version=context.browser.version if context.browser else None,
+        browser_executable=context.browser_executable_path,
+        headless=True,
+        event_name="browser_ready",
+    )
 
     # 종료 신호를 처리하는 핸들러 설정
     shutdown_event = asyncio.Event()

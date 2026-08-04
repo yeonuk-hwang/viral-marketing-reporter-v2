@@ -28,11 +28,6 @@ def find_google_chrome() -> str | None:
     if configured_path and Path(configured_path).is_file():
         return configured_path
 
-    # Chrome은 Windows에서 보통 PATH에 등록되지 않으므로 기본 설치 경로도 확인합니다.
-    for executable in ("google-chrome-stable", "google-chrome", "chrome"):
-        if browser_path := which(executable):
-            return browser_path
-
     windows_roots = [
         environ.get("LOCALAPPDATA"),
         environ.get("PROGRAMFILES"),
@@ -42,6 +37,15 @@ def find_google_chrome() -> str | None:
         chrome_path = Path(root) / "Google/Chrome/Application/chrome.exe"
         if chrome_path.is_file():
             return str(chrome_path)
+
+    # Chrome은 Windows에서 보통 PATH에 등록되지 않습니다. 기본 설치 경로를 먼저
+    # 확인한 뒤 PATH를 사용하여 PyInstaller에 포함된 Playwright Chromium을 피합니다.
+    for executable in ("google-chrome-stable", "google-chrome", "chrome"):
+        if browser_path := which(executable):
+            normalized_path = browser_path.replace("\\", "/").lower()
+            if "/playwright/" in normalized_path or "/.local-browsers/" in normalized_path:
+                continue
+            return browser_path
 
     return None
 
@@ -63,6 +67,7 @@ class ApplicationContext:
     def __init__(self) -> None:
         self._playwright: Playwright | None = None
         self.browser: Browser | None = None
+        self.browser_executable_path: str | None = None
 
     async def __aenter__(self) -> ApplicationContext:
         self._playwright = await async_playwright().start()
@@ -71,7 +76,8 @@ class ApplicationContext:
             "headless": True,
             "args": ["--disable-blink-features=AutomationControlled"],
         }
-        launch_options["executable_path"] = require_google_chrome()
+        self.browser_executable_path = require_google_chrome()
+        launch_options["executable_path"] = self.browser_executable_path
 
         self.browser = await self._playwright.chromium.launch(
             **launch_options,

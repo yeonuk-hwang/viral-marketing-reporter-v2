@@ -12,6 +12,7 @@ from viral_marketing_reporter.domain.model import (
     Screenshot,
     SearchResult,
 )
+from viral_marketing_reporter.infrastructure.exceptions import InstagramPageStateError
 from viral_marketing_reporter.infrastructure.logging_utils import (
     log_function_call,
     log_step,
@@ -101,13 +102,26 @@ class PlaywrightInstagramService(SearchPlatformService):
                 tracker.checkpoint("page_loaded")
 
                 if await search_page.is_result_empty():
+                    screenshot_path = None
+                    if screenshot_all_posts:
+                        screenshot_path = await search_page.take_empty_result_screenshot(
+                            index, keyword.text, output_dir
+                        )
                     logger.info(
                         "검색 결과 없음",
                         keyword=keyword.text,
+                        screenshot_created=screenshot_path is not None,
                         event_name="result_not_found",
                     )
                     tracker.end()
-                    return SearchResult(found_posts=[], screenshot=None)
+                    return SearchResult(
+                        found_posts=[],
+                        screenshot=(
+                            Screenshot(file_path=screenshot_path)
+                            if screenshot_path
+                            else None
+                        ),
+                    )
 
                 top_10_posts = await search_page.get_top_10_posts()
                 tracker.checkpoint("top_10_posts_retrieved")
@@ -119,14 +133,12 @@ class PlaywrightInstagramService(SearchPlatformService):
                 )
 
                 if not top_10_posts:
-                    logger.error(
-                        "포스트 요소를 찾을 수 없음",
+                    diagnostics = await search_page._get_page_diagnostics()
+                    logger.warning(
+                        "결과 확인 후 포스트 요소가 사라짐",
                         keyword=keyword.text,
+                        **diagnostics,
                         event_name="posts_not_found",
-                    )
-                    logger.error(await search_page.page.content())
-                    await search_page.page.screenshot(
-                        path=(output_dir / f"{keyword.text}_error.png")
                     )
                     tracker.end()
                     return SearchResult(found_posts=[], screenshot=None)
@@ -211,6 +223,20 @@ class PlaywrightInstagramService(SearchPlatformService):
                         else None
                     ),
                 )
+            except InstagramPageStateError as error:
+                output_dir.mkdir(parents=True, exist_ok=True)
+                diagnostic_path = output_dir / f"{index}_{keyword.text}_error.png"
+                if not self.page.is_closed():
+                    await self.page.screenshot(path=diagnostic_path, full_page=True)
+                logger.exception(
+                    "Instagram 페이지 상태 오류",
+                    keyword=keyword.text,
+                    error=str(error),
+                    diagnostic_screenshot=str(diagnostic_path),
+                    event_name="instagram_page_state_error",
+                )
+                tracker.end()
+                raise
             except TimeoutError as e:
                 logger.exception(
                     "페이지 로드 시간 초과",

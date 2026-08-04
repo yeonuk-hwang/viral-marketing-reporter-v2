@@ -45,8 +45,18 @@ async def main() -> None:
         action="store_true",
         help="사용자가 제공한 15개 키워드를 모두 검사합니다.",
     )
+    parser.add_argument(
+        "--keyword",
+        action="append",
+        dest="custom_keywords",
+        help="직접 검사할 키워드입니다. 여러 번 지정할 수 있습니다.",
+    )
     args = parser.parse_args()
-    keywords = KEYWORDS if args.all_keywords else KEYWORDS[:1]
+    keywords = (
+        args.custom_keywords
+        if args.custom_keywords
+        else KEYWORDS if args.all_keywords else KEYWORDS[:1]
+    )
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     async with async_playwright() as playwright:

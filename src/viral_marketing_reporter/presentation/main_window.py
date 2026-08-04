@@ -1,14 +1,12 @@
 import asyncio
 import os
-import platform as sys_platform
-import subprocess
 import time
 import uuid
 from pathlib import Path
 
 from loguru import logger
-from PySide6.QtCore import QSize, Qt, Slot
-from PySide6.QtGui import QCloseEvent, QFont
+from PySide6.QtCore import QSize, Qt, Slot, QUrl
+from PySide6.QtGui import QCloseEvent, QDesktopServices, QFont
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -36,6 +34,7 @@ from viral_marketing_reporter.application.queries import GetJobResultQuery
 from viral_marketing_reporter.domain.events import JobCompleted, TaskCompleted
 from viral_marketing_reporter.domain.message_bus import MessageBus
 from viral_marketing_reporter.domain.model import Platform
+from viral_marketing_reporter.infrastructure.paths import get_data_dir
 from viral_marketing_reporter.presentation.results_dialog import ResultsDialog
 from viral_marketing_reporter.presentation.widgets import PastingTableWidget
 
@@ -177,10 +176,13 @@ class MainWindow(QMainWindow):
         button_layout.setSpacing(5)
 
         # 데이터 폴더 열기 버튼
-        self.open_data_folder_button = QPushButton("데이터 폴더 열기")
+        self.open_data_folder_button = QPushButton("데이터·로그 폴더 열기")
         self.open_data_folder_button.setStyleSheet(
-            "QPushButton { background-color: #17a2b8; max-width: 150px; }"
+            "QPushButton { background-color: #17a2b8; max-width: 190px; }"
             "QPushButton:hover { background-color: #138496; }"
+        )
+        self.open_data_folder_button.setToolTip(
+            f"검색 결과와 문제 전달용 로그(debug.log) 위치: {get_data_dir()}"
         )
         self.open_data_folder_button.clicked.connect(self.open_data_folder)
         button_layout.addWidget(self.open_data_folder_button)
@@ -231,22 +233,34 @@ class MainWindow(QMainWindow):
     @Slot()
     def open_data_folder(self):
         """데이터 폴더 열기"""
-        try:
-            # 데이터 폴더 경로 구성
-            data_folder = Path.home() / "Downloads" / "viral-reporter"
+        self._open_folder(get_data_dir(), "data")
 
-            if data_folder.exists():
-                logger.info(f"Opening data folder: {data_folder}")
-                if sys_platform.system() == "Darwin":
-                    subprocess.Popen(["open", str(data_folder)])
-                elif sys_platform.system() == "Windows":
-                    os.startfile(str(data_folder))
-                elif sys_platform.system() == "Linux":
-                    subprocess.Popen(["xdg-open", str(data_folder)])
+    def _open_folder(self, folder: Path, folder_type: str) -> None:
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+            opened = QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder.resolve())))
+            if opened:
+                logger.info(
+                    "폴더 열기 성공",
+                    folder=str(folder),
+                    folder_type=folder_type,
+                    event_name="folder_opened",
+                )
             else:
-                logger.warning("Data folder not found: ~/Downloads/viral-reporter/")
-        except Exception as e:
-            logger.error(f"Failed to open data folder: {str(e)}")
+                logger.error(
+                    "운영체제가 폴더 열기 요청을 처리하지 못함",
+                    folder=str(folder),
+                    folder_type=folder_type,
+                    event_name="folder_open_failed",
+                )
+        except Exception as error:
+            logger.exception(
+                "폴더 열기 실패",
+                folder=str(folder),
+                folder_type=folder_type,
+                error=str(error),
+                event_name="folder_open_failed",
+            )
 
     @asyncSlot()
     async def logout_instagram(self):
@@ -337,7 +351,14 @@ class MainWindow(QMainWindow):
         logger.debug(f"UI state updated to 'searching' for {platform.value}.")
 
         logger.info(
-            f"Creating search job {self.current_job_id} with {self.total_tasks} tasks for {platform.value}."
+            "검색 작업 생성",
+            job_id=str(self.current_job_id),
+            platform=platform.value,
+            task_count=self.total_tasks,
+            keyword_count=len(keywords),
+            target_url_count=len(urls),
+            screenshot_all_posts=self.screenshot_all_posts,
+            event_name="search_job_requested",
         )
         await self.message_bus.handle(command)
 

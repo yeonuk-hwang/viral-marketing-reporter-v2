@@ -11,3 +11,8 @@ class ScreenshotError(InfrastructureError):
 class ScreenshotTargetMissingError(ScreenshotError):
     """스크린샷을 찍을 대상을 찾을 수 없을 때 발생하는 예외입니다."""
     pass
+
+
+class InstagramPageStateError(InfrastructureError):
+    """Instagram 로그인, challenge 또는 오류 페이지가 감지된 경우입니다."""
+    pass

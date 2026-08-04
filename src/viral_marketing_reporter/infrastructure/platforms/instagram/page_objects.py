@@ -1,14 +1,18 @@
 from pathlib import Path
+import re
 from urllib.parse import quote
+from urllib.parse import urlsplit
 
 from loguru import logger
 from playwright.async_api import (
     FloatRect,
     Locator,
     Page,
+    TimeoutError as PlaywrightTimeoutError,
 )
 
 from viral_marketing_reporter.infrastructure.exceptions import (
+    InstagramPageStateError,
     ScreenshotTargetMissingError,
 )
 from viral_marketing_reporter.infrastructure.logging_utils import (
@@ -28,9 +32,92 @@ class InstagramSearchPage:
     GRID_COLUMNS = 5
     GRID_ROWS = 2
     GRID_GAP = 4
+    EMPTY_RESULT_CLIP_WIDTH = 1460
+    EMPTY_RESULT_CLIP_HEIGHT = 835
+    RESULT_WAIT_TIMEOUT_MS = 15_000
+    SEARCH_ATTEMPTS = 2
+    DIAGNOSTIC_RESOURCE_TYPES = {"document", "xhr", "fetch", "script"}
 
     def __init__(self, page: Page):
         self.page: Page = page
+        self.network_failure_count = 0
+        self.http_error_count = 0
+        self.console_error_count = 0
+        self.page_error_count = 0
+        self._attach_diagnostic_listeners()
+
+    def _attach_diagnostic_listeners(self) -> None:
+        """민감정보를 제외한 네트워크 및 브라우저 오류를 기록합니다."""
+        self.page.on("response", self._on_response)
+        self.page.on("requestfailed", self._on_request_failed)
+        self.page.on("console", self._on_console)
+        self.page.on("pageerror", self._on_page_error)
+
+    @staticmethod
+    def _safe_url_parts(url: str) -> tuple[str, str]:
+        parsed = urlsplit(url)
+        return parsed.netloc, parsed.path
+
+    @classmethod
+    def _sanitize_diagnostic_text(cls, text: str) -> str:
+        """메시지 속 URL에서 토큰이 포함될 수 있는 쿼리와 fragment를 제거합니다."""
+        def replace_url(match: re.Match[str]) -> str:
+            host, path = cls._safe_url_parts(match.group(0))
+            return f"https://{host}{path}"
+
+        sanitized = re.sub(r"https?://[^\s]+", replace_url, text)
+        return sanitized[:500]
+
+    def _on_response(self, response) -> None:
+        request = response.request
+        if (
+            response.status < 400
+            or request.resource_type not in self.DIAGNOSTIC_RESOURCE_TYPES
+        ):
+            return
+        host, path = self._safe_url_parts(response.url)
+        self.http_error_count += 1
+        logger.warning(
+            "Instagram HTTP 오류 응답",
+            host=host,
+            path=path,
+            status=response.status,
+            resource_type=request.resource_type,
+            event_name="instagram_http_error",
+        )
+
+    def _on_request_failed(self, request) -> None:
+        if request.resource_type not in self.DIAGNOSTIC_RESOURCE_TYPES:
+            return
+        host, path = self._safe_url_parts(request.url)
+        self.network_failure_count += 1
+        logger.warning(
+            "Instagram 네트워크 요청 실패",
+            host=host,
+            path=path,
+            resource_type=request.resource_type,
+            failure=self._sanitize_diagnostic_text(request.failure or "unknown"),
+            event_name="instagram_request_failed",
+        )
+
+    def _on_console(self, message) -> None:
+        if message.type != "error":
+            return
+        self.console_error_count += 1
+        logger.warning(
+            "Instagram 브라우저 콘솔 오류",
+            message=self._sanitize_diagnostic_text(message.text),
+            event_name="instagram_console_error",
+        )
+
+    def _on_page_error(self, error) -> None:
+        self.page_error_count += 1
+        logger.warning(
+            "Instagram 페이지 JavaScript 오류",
+            error=self._sanitize_diagnostic_text(str(error)),
+            error_type=error.__class__.__name__,
+            event_name="instagram_page_error",
+        )
 
     @log_function_call
     async def goto(self, keyword: str) -> None:
@@ -45,36 +132,104 @@ class InstagramSearchPage:
             event_name="page_navigate",
         )
 
-        await self.page.goto(search_url, wait_until="load", timeout=60 * 1000)
-        logger.debug(
-            "페이지 로드 완료",
+        for attempt in range(1, self.SEARCH_ATTEMPTS + 1):
+            if attempt == 1:
+                response = await self.page.goto(
+                    search_url, wait_until="load", timeout=60 * 1000
+                )
+            else:
+                logger.info(
+                    "게시물 미감지로 검색 페이지 새로고침",
+                    keyword=keyword,
+                    attempt=attempt,
+                    event_name="search_retry",
+                )
+                response = await self.page.reload(wait_until="load", timeout=60 * 1000)
+
+            logger.debug(
+                "페이지 로드 완료",
+                keyword=keyword,
+                attempt=attempt,
+                url=self.page.url,
+                response_status=response.status if response else None,
+                event_name="page_loaded",
+            )
+            try:
+                await self.page.locator(self.POST_SELECTOR).first.wait_for(
+                    state="visible", timeout=self.RESULT_WAIT_TIMEOUT_MS
+                )
+                logger.debug(
+                    "검색 게시물 확인 완료",
+                    keyword=keyword,
+                    attempt=attempt,
+                    event_name="search_result_ready",
+                )
+                return
+            except PlaywrightTimeoutError:
+                diagnostics = await self._get_page_diagnostics()
+                logger.warning(
+                    "검색 게시물 대기 시간 초과",
+                    keyword=keyword,
+                    attempt=attempt,
+                    timeout_ms=self.RESULT_WAIT_TIMEOUT_MS,
+                    **diagnostics,
+                    event_name="search_result_wait_timeout",
+                )
+                self._raise_for_blocking_state(keyword, diagnostics)
+
+        diagnostics = await self._get_page_diagnostics()
+        logger.info(
+            "재시도 후에도 검색 게시물 없음",
             keyword=keyword,
-            event_name="page_loaded",
+            attempt_count=self.SEARCH_ATTEMPTS,
+            **diagnostics,
+            event_name="empty_search_result",
         )
 
-        # 포스트가 로드될 때까지 명시적으로 대기
-        logger.debug(
-            "포스트 요소 대기 중",
-            keyword=keyword,
-            event_name="wait_for_posts",
-        )
-        posts_or_empty = self.page.locator(self.POST_SELECTOR).first.or_(
-            self.page.get_by_text("No results found").first
-        )
-        await posts_or_empty.wait_for(
-            state="visible", timeout=60 * 1000
-        )
-        logger.debug(
-            "검색 결과 상태 확인 완료",
-            keyword=keyword,
-            event_name="search_result_ready",
-        )
+    async def _get_page_diagnostics(self) -> dict[str, object]:
+        """민감한 전체 HTML 대신 문제 판별에 필요한 제한된 상태만 수집합니다."""
+        body_text = await self.page.locator("body").inner_text(timeout=5_000)
+        normalized_body = " ".join(body_text.split())
+        return {
+            "url": self.page.url,
+            "title": await self.page.title(),
+            "post_count": await self.page.locator(self.POST_SELECTOR).count(),
+            "body_text_length": len(body_text),
+            "body_excerpt": normalized_body[:500],
+            "document_ready_state": await self.page.evaluate("document.readyState"),
+            "browser_language": await self.page.evaluate("navigator.language"),
+            "http_error_count": self.http_error_count,
+            "network_failure_count": self.network_failure_count,
+            "console_error_count": self.console_error_count,
+            "page_error_count": self.page_error_count,
+        }
+
+    def _raise_for_blocking_state(
+        self, keyword: str, diagnostics: dict[str, object]
+    ) -> None:
+        """빈 결과와 구분해야 하는 로그인 및 제한 페이지를 감지합니다."""
+        url = str(diagnostics["url"]).lower()
+        body_text = str(diagnostics["body_excerpt"]).lower()
+
+        if "/accounts/login" in url:
+            raise InstagramPageStateError("Instagram 로그인 페이지로 이동했습니다.")
+        if "/challenge" in url or "/checkpoint" in url:
+            raise InstagramPageStateError("Instagram 보안 확인 페이지가 감지됐습니다.")
+        if any(
+            text in body_text
+            for text in (
+                "try again later",
+                "please wait a few minutes",
+                "something went wrong",
+            )
+        ):
+            raise InstagramPageStateError(
+                f"Instagram 검색 제한 또는 오류 페이지가 감지됐습니다: {keyword}"
+            )
 
     async def is_result_empty(self) -> bool:
         """검색 결과가 없는지 확인합니다."""
-        # Instagram에서 결과가 없을 때 표시되는 메시지 확인
-        no_results_locator = self.page.get_by_text("No results found").first
-        return await no_results_locator.is_visible()
+        return await self.page.locator(self.POST_SELECTOR).count() == 0
 
     @classmethod
     def _calculate_screenshot_clip(cls, boxes: list[FloatRect]) -> FloatRect:
@@ -130,6 +285,30 @@ class InstagramSearchPage:
         """
         post_links = await self.page.locator(self.POST_SELECTOR).all()
         return post_links[: self.SCREENSHOT_POST_COUNT]
+
+    async def take_empty_result_screenshot(
+        self, index: int, keyword: str, output_dir: Path
+    ) -> Path:
+        """게시물이 없는 검색 페이지를 일반 결과와 같은 크기로 저장합니다."""
+        output_dir.mkdir(parents=True, exist_ok=True)
+        screenshot_path = output_dir / f"{index}_{keyword.replace(' ', '_')}.png"
+        clip: FloatRect = {
+            "x": 0,
+            "y": 0,
+            "width": self.EMPTY_RESULT_CLIP_WIDTH,
+            "height": self.EMPTY_RESULT_CLIP_HEIGHT,
+        }
+        await self.page.screenshot(path=screenshot_path, clip=clip)
+        logger.info(
+            "빈 검색 결과 스크린샷 촬영 완료",
+            keyword=keyword,
+            screenshot_path=str(screenshot_path),
+            width=self.EMPTY_RESULT_CLIP_WIDTH,
+            height=self.EMPTY_RESULT_CLIP_HEIGHT,
+            file_size_bytes=screenshot_path.stat().st_size,
+            event_name="empty_result_screenshot_saved",
+        )
+        return screenshot_path
 
     async def _wait_for_post_media(self) -> dict[str, int]:
         """상위 포스트의 이미지 및 비디오 첫 프레임이 렌더링될 때까지 기다립니다."""

@@ -1,6 +1,8 @@
 """환경 정보 수집 및 로깅 유틸리티"""
 
 import platform
+import sys
+from importlib.metadata import PackageNotFoundError, version
 from typing import Dict, Any
 
 
@@ -11,6 +13,16 @@ def get_environment_info() -> Dict[str, Any]:
         환경 정보를 담은 딕셔너리
     """
     env_info = {}
+
+    try:
+        app_version = version("viral-marketing-reporter")
+    except PackageNotFoundError:
+        app_version = "development"
+    env_info["application"] = {
+        "version": app_version,
+        "python": sys.version,
+        "frozen": getattr(sys, "frozen", False),
+    }
 
     # OS 정보
     env_info["os"] = {
@@ -62,6 +74,12 @@ def format_environment_info(env_info: Dict[str, Any]) -> str:
         포맷된 문자열
     """
     lines = ["=" * 60, "Environment Information", "=" * 60]
+
+    application_info = env_info.get("application", {})
+    lines.append("\n[Application]")
+    lines.append(f"  Version: {application_info.get('version', 'Unknown')}")
+    lines.append(f"  Python: {application_info.get('python', 'Unknown')}")
+    lines.append(f"  Packaged executable: {application_info.get('frozen', False)}")
 
     # OS 정보
     lines.append("\n[Operating System]")
