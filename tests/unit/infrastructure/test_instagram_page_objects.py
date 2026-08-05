@@ -40,9 +40,24 @@ async def test_goto_retries_then_accepts_empty_result_without_text() -> None:
     await search_page.goto("희소 검색어")
 
     page.goto.assert_awaited_once()
+    assert page.goto.await_args.args[0].endswith(
+        "?q=%23%ED%9D%AC%EC%86%8C%20%EA%B2%80%EC%83%89%EC%96%B4"
+    )
     page.reload.assert_awaited_once()
     assert post_locator.first.wait_for.await_count == 2
     assert await search_page.is_result_empty() is True
+
+
+@pytest.mark.asyncio
+async def test_goto_does_not_duplicate_existing_hashtag() -> None:
+    page, _ = _page_without_search_posts()
+    search_page = InstagramSearchPage(page)
+
+    await search_page.goto("#코스트코추천템")
+
+    assert page.goto.await_args.args[0].endswith(
+        "?q=%23%EC%BD%94%EC%8A%A4%ED%8A%B8%EC%BD%94%EC%B6%94%EC%B2%9C%ED%85%9C"
+    )
 
 
 @pytest.mark.asyncio

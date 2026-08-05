@@ -122,12 +122,19 @@ class InstagramSearchPage:
     @log_function_call
     async def goto(self, keyword: str) -> None:
         """주어진 키워드로 검색 결과 페이지로 이동합니다."""
-        encoded_keyword = quote(keyword)
+        normalized_keyword = keyword.strip()
+        hashtag_keyword = (
+            normalized_keyword
+            if normalized_keyword.startswith("#")
+            else f"#{normalized_keyword}"
+        )
+        encoded_keyword = quote(hashtag_keyword)
         search_url = f"https://www.instagram.com/explore/search/keyword/?q={encoded_keyword}"
 
         logger.info(
             "Instagram 검색 페이지로 이동",
             keyword=keyword,
+            search_query=hashtag_keyword,
             url=search_url,
             event_name="page_navigate",
         )
