@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import uuid
 
 # 1. Queries
@@ -18,6 +18,7 @@ class TaskResultDTO:
     found_post_urls: list[str]
     screenshot_path: str | None
     error_message: str | None
+    screenshot_paths: list[str] = field(default_factory=list)
 
 @dataclass(frozen=True)
 class JobResultDTO:

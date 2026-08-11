@@ -18,6 +18,7 @@ from viral_marketing_reporter.domain.events import (
 
 class Platform(Enum):
     NAVER_BLOG = "naver_blog"
+    NAVER_INTEGRATED = "naver_integrated"
     INSTAGRAM = "instagram"
 
 
@@ -48,6 +49,7 @@ class SearchResult:
 
     found_posts: list[Post]
     screenshot: Screenshot | None
+    screenshots: list[Screenshot] = field(default_factory=list)
 
 
 # --- Enums for Status ---
@@ -179,4 +181,3 @@ class SearchJob:
     @override
     def __hash__(self):
         return hash(self.job_id)
-

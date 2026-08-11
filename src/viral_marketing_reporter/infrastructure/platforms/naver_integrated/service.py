@@ -1,0 +1,172 @@
+import asyncio
+import re
+from pathlib import Path
+from urllib.parse import urlsplit
+
+import httpx
+from loguru import logger
+from playwright.async_api import Locator, Page
+
+from viral_marketing_reporter.domain.model import Keyword, Post, Screenshot, SearchResult
+from viral_marketing_reporter.infrastructure.platforms.base import SearchPlatformService
+from viral_marketing_reporter.infrastructure.platforms.naver_integrated.page_objects import (
+    NaverIntegratedSearchPage,
+)
+
+
+BLOG_POST_PATTERN = re.compile(
+    r"^https?://(?:m\.)?blog\.naver\.com/([^/?#]+)/([0-9]+)(?:[/?#].*)?$",
+    re.IGNORECASE,
+)
+INFLUENCER_CONTENT_PATTERN = re.compile(r"^/[^/]+/contents/(?:internal/)?\d+/?$")
+
+
+def normalize_naver_blog_url(url: str) -> str | None:
+    """네이버 블로그 URL을 모바일/쿼리와 무관한 게시물 키로 변환합니다."""
+    match = BLOG_POST_PATTERN.match(url.strip())
+    if not match:
+        return None
+    return f"{match.group(1).lower()}/{match.group(2)}"
+
+
+class PlaywrightNaverIntegratedSearchService(SearchPlatformService):
+    def __init__(self, page: Page) -> None:
+        self.page = page
+
+    async def _direct_matches(
+        self, search_page: NaverIntegratedSearchPage, target_keys: set[str]
+    ) -> dict[str, Locator]:
+        matches: dict[str, Locator] = {}
+        for link in await search_page.result_links():
+            href = await link.get_attribute("href")
+            if (
+                href
+                and await link.is_visible()
+                and (key := normalize_naver_blog_url(href)) in target_keys
+            ):
+                matches.setdefault(key, link)
+        return matches
+
+    async def _resolve_influencer_url(
+        self, client: httpx.AsyncClient, href: str
+    ) -> str | None:
+        parsed = urlsplit(href)
+        if (
+            parsed.scheme not in {"http", "https"}
+            or parsed.hostname != "in.naver.com"
+            or not INFLUENCER_CONTENT_PATTERN.match(parsed.path)
+        ):
+            return None
+        try:
+            response = await client.get(href, follow_redirects=True, timeout=8)
+            return normalize_naver_blog_url(str(response.url))
+        except httpx.HTTPError as error:
+            logger.warning(
+                "인플루언서 원문 URL 확인 실패",
+                event_name="influencer_redirect_failed",
+                url=href,
+                error=str(error),
+            )
+            return None
+
+    async def _resolve_target_posts(
+        self, posts_to_find: list[Post]
+    ) -> dict[str, Post]:
+        """블로그 및 인플루언서 입력 URL을 게시물 키로 변환합니다."""
+        resolved: list[str | None] = [None] * len(posts_to_find)
+        influencer_inputs: list[tuple[int, str]] = []
+
+        for index, post in enumerate(posts_to_find):
+            if key := normalize_naver_blog_url(post.url):
+                resolved[index] = key
+            else:
+                influencer_inputs.append((index, post.url))
+
+        if influencer_inputs:
+            async with httpx.AsyncClient(
+                headers={"User-Agent": "Mozilla/5.0"},
+            ) as client:
+                keys = await asyncio.gather(
+                    *(
+                        self._resolve_influencer_url(client, url)
+                        for _, url in influencer_inputs
+                    )
+                )
+            for (index, _), key in zip(influencer_inputs, keys, strict=True):
+                resolved[index] = key
+
+        return {
+            key: post
+            for post, key in zip(posts_to_find, resolved, strict=True)
+            if key
+        }
+
+    async def _influencer_matches(
+        self,
+        search_page: NaverIntegratedSearchPage,
+        target_keys: set[str],
+    ) -> dict[str, Locator]:
+        links = await search_page.influencer_content_links()
+        unique_links: dict[str, Locator] = {}
+        for link in links:
+            if await link.is_visible() and (href := await link.get_attribute("href")):
+                unique_links.setdefault(href, link)
+
+        async with httpx.AsyncClient(
+            headers={"User-Agent": "Mozilla/5.0"},
+        ) as client:
+            resolved = await asyncio.gather(
+                *(self._resolve_influencer_url(client, href) for href in unique_links)
+            )
+
+        return {
+            key: link
+            for (link, key) in zip(unique_links.values(), resolved, strict=True)
+            if key and key in target_keys
+        }
+
+    async def search_and_find_posts(
+        self,
+        index: int,
+        keyword: Keyword,
+        posts_to_find: list[Post],
+        output_dir: Path,
+        screenshot_all_posts: bool = False,
+    ) -> SearchResult:
+        search_page = NaverIntegratedSearchPage(self.page)
+        try:
+            await search_page.goto(keyword.text)
+            await search_page.load_lazy_content()
+            target_by_key = await self._resolve_target_posts(posts_to_find)
+            target_keys = set(target_by_key)
+
+            matches = await self._direct_matches(search_page, target_keys)
+            unresolved_keys = target_keys - matches.keys()
+            if unresolved_keys:
+                matches.update(
+                    await self._influencer_matches(search_page, unresolved_keys)
+                )
+
+            matched_cards = [
+                await search_page.highlight_result_for_link(link)
+                for link in matches.values()
+            ]
+            screenshot_paths: list[Path] = []
+            if matched_cards or screenshot_all_posts:
+                screenshot_paths = await search_page.take_screenshots(
+                    index=index,
+                    keyword=keyword.text,
+                    output_dir=output_dir,
+                    matched_cards=matched_cards,
+                    screenshot_all_posts=screenshot_all_posts,
+                )
+
+            return SearchResult(
+                found_posts=[target_by_key[key] for key in target_by_key if key in matches],
+                screenshot=Screenshot(file_path=screenshot_paths[0])
+                if screenshot_paths
+                else None,
+                screenshots=[Screenshot(file_path=path) for path in screenshot_paths],
+            )
+        finally:
+            await self.page.close()

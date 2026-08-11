@@ -263,6 +263,12 @@ class GetJobResultQueryHandler:
                         if task.result and task.result.screenshot
                         else None,
                         error_message=task.error_message,
+                        screenshot_paths=[
+                            str(screenshot.file_path)
+                            for screenshot in task.result.screenshots
+                        ]
+                        if task.result
+                        else [],
                     )
                     for task in job.tasks
                 ]

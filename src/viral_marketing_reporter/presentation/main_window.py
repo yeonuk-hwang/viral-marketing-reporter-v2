@@ -119,6 +119,22 @@ class MainWindow(QMainWindow):
         self.naver_blog_button.clicked.connect(lambda: self.run_search(Platform.NAVER_BLOG))
         platform_button_layout.addWidget(self.naver_blog_button)
 
+        self.naver_integrated_button = QPushButton("네이버 통합검색 시작")
+        self.naver_integrated_button.setStyleSheet(
+            """
+            QPushButton {
+                background-color: #16883D; color: white; border-radius: 5px;
+                padding: 10px; font-size: 16px; font-weight: bold;
+            }
+            QPushButton:hover { background-color: #126f32; }
+            QPushButton:disabled { background-color: #cccccc; color: #666666; }
+            """
+        )
+        self.naver_integrated_button.clicked.connect(
+            lambda: self.run_search(Platform.NAVER_INTEGRATED)
+        )
+        platform_button_layout.addWidget(self.naver_integrated_button)
+
         self.instagram_button = QPushButton("Instagram 검색 시작")
         self.instagram_button.setStyleSheet(
             """
@@ -342,11 +358,18 @@ class MainWindow(QMainWindow):
         if platform == Platform.NAVER_BLOG:
             self.naver_blog_button.setText("검색 중...")
             self.naver_blog_button.setEnabled(False)
+            self.naver_integrated_button.setEnabled(False)
+            self.instagram_button.setEnabled(False)
+        elif platform == Platform.NAVER_INTEGRATED:
+            self.naver_integrated_button.setText("검색 중...")
+            self.naver_integrated_button.setEnabled(False)
+            self.naver_blog_button.setEnabled(False)
             self.instagram_button.setEnabled(False)
         elif platform == Platform.INSTAGRAM:
             self.instagram_button.setText("검색 중...")
             self.instagram_button.setEnabled(False)
             self.naver_blog_button.setEnabled(False)
+            self.naver_integrated_button.setEnabled(False)
 
         logger.debug(f"UI state updated to 'searching' for {platform.value}.")
 
@@ -391,11 +414,18 @@ class MainWindow(QMainWindow):
         if self.current_platform == Platform.NAVER_BLOG:
             self.naver_blog_button.setText("네이버 블로그 검색 시작")
             self.naver_blog_button.setEnabled(True)
+            self.naver_integrated_button.setEnabled(True)
+            self.instagram_button.setEnabled(True)
+        elif self.current_platform == Platform.NAVER_INTEGRATED:
+            self.naver_integrated_button.setText("네이버 통합검색 시작")
+            self.naver_integrated_button.setEnabled(True)
+            self.naver_blog_button.setEnabled(True)
             self.instagram_button.setEnabled(True)
         elif self.current_platform == Platform.INSTAGRAM:
             self.instagram_button.setText("Instagram 검색 시작")
             self.instagram_button.setEnabled(True)
             self.naver_blog_button.setEnabled(True)
+            self.naver_integrated_button.setEnabled(True)
 
         result_dto = await self.query_handler.handle(
             GetJobResultQuery(job_id=event.job_id)

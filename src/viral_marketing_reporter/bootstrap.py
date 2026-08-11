@@ -31,6 +31,9 @@ from viral_marketing_reporter.infrastructure.platforms.instagram.service import 
 from viral_marketing_reporter.infrastructure.platforms.naver_blog.service import (
     PlaywrightNaverBlogService,
 )
+from viral_marketing_reporter.infrastructure.platforms.naver_integrated.service import (
+    PlaywrightNaverIntegratedSearchService,
+)
 from viral_marketing_reporter.infrastructure.uow import InMemoryUnitOfWork
 
 if TYPE_CHECKING:
@@ -76,8 +79,13 @@ def bootstrap(context: ApplicationContext) -> Application:
 
     # 플랫폼 서비스 등록
     factory.register_service(Platform.NAVER_BLOG, PlaywrightNaverBlogService)
+    factory.register_service(
+        Platform.NAVER_INTEGRATED, PlaywrightNaverIntegratedSearchService
+    )
     factory.register_service(Platform.INSTAGRAM, PlaywrightInstagramService)
-    logger.debug("플랫폼 서비스 등록 완료: NAVER_BLOG, INSTAGRAM")
+    logger.debug(
+        "플랫폼 서비스 등록 완료: NAVER_BLOG, NAVER_INTEGRATED, INSTAGRAM"
+    )
 
     # 인증 서비스 등록 (인증이 필요한 플랫폼만)
     instagram_auth = InstagramAuthService(browser=context.browser)

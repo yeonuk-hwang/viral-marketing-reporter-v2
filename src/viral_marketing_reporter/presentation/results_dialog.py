@@ -89,10 +89,21 @@ class ResultsDialog(QDialog):
                 status_item.setToolTip(error_msg)
                 status_item.setForeground(Qt.GlobalColor.red)
 
-            screenshot_item = QTableWidgetItem(task.screenshot_path or "N/A")
-            if task.screenshot_path:
+            screenshot_paths = task.screenshot_paths or (
+                [task.screenshot_path] if task.screenshot_path else []
+            )
+            screenshot_text = (
+                screenshot_paths[0]
+                if len(screenshot_paths) == 1
+                else f"스크린샷 {len(screenshot_paths)}개"
+                if screenshot_paths
+                else "N/A"
+            )
+            screenshot_item = QTableWidgetItem(screenshot_text)
+            screenshot_item.setData(Qt.ItemDataRole.UserRole, screenshot_paths)
+            if screenshot_paths:
                 if self.screenshot_folder is None:
-                    self.screenshot_folder = Path(task.screenshot_path).parent
+                    self.screenshot_folder = Path(screenshot_paths[0]).parent
 
                 font = screenshot_item.font()
                 font.setUnderline(True)
@@ -108,9 +119,11 @@ class ResultsDialog(QDialog):
         if column == 2:
             item = self.results_table.item(row, column)
             if item and item.text() != "N/A":
-                file_path = Path(item.text())
-                if file_path.exists():
-                    webbrowser.open(file_path.as_uri())
+                paths = item.data(Qt.ItemDataRole.UserRole) or [item.text()]
+                for path in paths:
+                    file_path = Path(path)
+                    if file_path.exists():
+                        webbrowser.open(file_path.as_uri())
 
     @Slot()
     def open_screenshot_folder(self):
