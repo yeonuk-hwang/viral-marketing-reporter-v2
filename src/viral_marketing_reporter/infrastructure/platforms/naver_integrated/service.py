@@ -35,8 +35,8 @@ class PlaywrightNaverIntegratedSearchService(SearchPlatformService):
 
     async def _direct_matches(
         self, search_page: NaverIntegratedSearchPage, target_keys: set[str]
-    ) -> dict[str, Locator]:
-        matches: dict[str, Locator] = {}
+    ) -> dict[str, list[Locator]]:
+        matches: dict[str, list[Locator]] = {}
         for link in await search_page.result_links():
             href = await link.get_attribute("href")
             if (
@@ -44,7 +44,7 @@ class PlaywrightNaverIntegratedSearchService(SearchPlatformService):
                 and await link.is_visible()
                 and (key := normalize_naver_blog_url(href)) in target_keys
             ):
-                matches.setdefault(key, link)
+                matches.setdefault(key, []).append(link)
         return matches
 
     async def _resolve_influencer_url(
@@ -105,25 +105,29 @@ class PlaywrightNaverIntegratedSearchService(SearchPlatformService):
         self,
         search_page: NaverIntegratedSearchPage,
         target_keys: set[str],
-    ) -> dict[str, Locator]:
+    ) -> dict[str, list[Locator]]:
         links = await search_page.influencer_content_links()
-        unique_links: dict[str, Locator] = {}
+        visible_links: list[tuple[str, Locator]] = []
         for link in links:
             if await link.is_visible() and (href := await link.get_attribute("href")):
-                unique_links.setdefault(href, link)
+                visible_links.append((href, link))
+
+        unique_hrefs = list(dict.fromkeys(href for href, _ in visible_links))
 
         async with httpx.AsyncClient(
             headers={"User-Agent": "Mozilla/5.0"},
         ) as client:
             resolved = await asyncio.gather(
-                *(self._resolve_influencer_url(client, href) for href in unique_links)
+                *(self._resolve_influencer_url(client, href) for href in unique_hrefs)
             )
+        key_by_href = dict(zip(unique_hrefs, resolved, strict=True))
 
-        return {
-            key: link
-            for (link, key) in zip(unique_links.values(), resolved, strict=True)
-            if key and key in target_keys
-        }
+        matches: dict[str, list[Locator]] = {}
+        for href, link in visible_links:
+            key = key_by_href[href]
+            if key and key in target_keys:
+                matches.setdefault(key, []).append(link)
+        return matches
 
     async def search_and_find_posts(
         self,
@@ -141,15 +145,16 @@ class PlaywrightNaverIntegratedSearchService(SearchPlatformService):
             target_keys = set(target_by_key)
 
             matches = await self._direct_matches(search_page, target_keys)
-            unresolved_keys = target_keys - matches.keys()
-            if unresolved_keys:
-                matches.update(
-                    await self._influencer_matches(search_page, unresolved_keys)
-                )
+            influencer_matches = await self._influencer_matches(
+                search_page, target_keys
+            )
+            for key, links in influencer_matches.items():
+                matches.setdefault(key, []).extend(links)
 
             matched_cards = [
                 await search_page.highlight_result_for_link(link)
-                for link in matches.values()
+                for links in matches.values()
+                for link in links
             ]
             screenshot_paths: list[Path] = []
             if matched_cards or screenshot_all_posts:

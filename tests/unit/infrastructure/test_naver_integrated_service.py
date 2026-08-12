@@ -109,3 +109,57 @@ async def test_resolve_influencer_url_accepts_internal_and_public_content_paths(
 
     assert public_result == "choco520/224364092012"
     assert internal_result == "choco520/224364092012"
+
+
+async def test_take_screenshots_creates_one_file_for_all_matched_areas(mocker):
+    from pathlib import Path
+
+    from viral_marketing_reporter.infrastructure.platforms.naver_integrated.page_objects import (
+        NaverIntegratedSearchPage,
+    )
+
+    page = mocker.Mock()
+    search_page = NaverIntegratedSearchPage(page)
+    expected_path = Path("results/1_키워드.png")
+    take_screenshot = mocker.patch.object(
+        search_page, "take_screenshot", return_value=expected_path
+    )
+    cards = [mocker.Mock(), mocker.Mock()]
+
+    result = await search_page.take_screenshots(
+        index=1,
+        keyword="키워드",
+        output_dir=Path("results"),
+        matched_cards=cards,
+        screenshot_all_posts=False,
+    )
+
+    assert result == [expected_path]
+    take_screenshot.assert_awaited_once_with(
+        index=1,
+        keyword="키워드",
+        output_dir=Path("results"),
+        matched_cards=cards,
+        screenshot_all_posts=False,
+    )
+
+
+async def test_direct_matches_keeps_every_visible_occurrence(mocker):
+    service = PlaywrightNaverIntegratedSearchService(mocker.Mock())
+    url = "https://blog.naver.com/choco520/224364092012"
+    first_link = mocker.AsyncMock()
+    first_link.get_attribute.return_value = url
+    first_link.is_visible.return_value = True
+    second_link = mocker.AsyncMock()
+    second_link.get_attribute.return_value = url
+    second_link.is_visible.return_value = True
+    search_page = mocker.AsyncMock()
+    search_page.result_links.return_value = [first_link, second_link]
+
+    result = await service._direct_matches(
+        search_page, {"choco520/224364092012"}
+    )
+
+    assert result == {
+        "choco520/224364092012": [first_link, second_link]
+    }

@@ -66,6 +66,32 @@ class NaverIntegratedSearchPage:
 
     async def highlight_result_for_link(self, link: Locator) -> ElementHandle:
         """링크를 포함하는 가장 가까운 결과 카드에 테두리를 표시합니다."""
+        await self.page.evaluate(
+            """() => {
+                if (document.querySelector('[data-viral-reporter-highlight-style]')) {
+                    return;
+                }
+                const style = document.createElement('style');
+                style.dataset.viralReporterHighlightStyle = 'true';
+                style.textContent = `
+                    [data-viral-reporter-match="true"] {
+                        position: relative !important;
+                        isolation: isolate;
+                    }
+                    [data-viral-reporter-match="true"]::after {
+                        content: "";
+                        position: absolute;
+                        inset: 0;
+                        box-sizing: border-box;
+                        border: 3px solid red;
+                        border-radius: inherit;
+                        pointer-events: none;
+                        z-index: 2147483647;
+                    }
+                `;
+                document.head.appendChild(style);
+            }"""
+        )
         card = await link.evaluate_handle(
             """anchor => {
                 let element = anchor;
@@ -104,8 +130,6 @@ class NaverIntegratedSearchPage:
                     }
                     element = element.parentElement;
                 }
-                fallback.style.outline = '3px solid red';
-                fallback.style.outlineOffset = '3px';
                 fallback.dataset.viralReporterMatch = 'true';
                 return fallback;
             }"""
@@ -115,25 +139,6 @@ class NaverIntegratedSearchPage:
             raise ScreenshotTargetMissingError("매칭된 결과 카드를 찾지 못했습니다.")
         return element
 
-    async def group_cards_by_area(
-        self, matched_cards: list[ElementHandle]
-    ) -> list[list[ElementHandle]]:
-        """#main_pack의 직계 결과 블록을 기준으로 매칭 카드를 그룹화합니다."""
-        grouped: dict[int, list[ElementHandle]] = {}
-        for card in matched_cards:
-            area_index = await card.evaluate(
-                """card => {
-                    const main = document.querySelector('#main_pack');
-                    let block = card;
-                    while (block.parentElement && block.parentElement !== main) {
-                        block = block.parentElement;
-                    }
-                    return [...main.children].indexOf(block);
-                }"""
-            )
-            grouped.setdefault(area_index, []).append(card)
-        return list(grouped.values())
-
     async def take_screenshots(
         self,
         index: int,
@@ -142,46 +147,15 @@ class NaverIntegratedSearchPage:
         matched_cards: list[ElementHandle],
         screenshot_all_posts: bool,
     ) -> list[Path]:
-        groups = (
-            await self.group_cards_by_area(matched_cards)
-            if matched_cards
-            else [[]]
-        )
-        paths: list[Path] = []
-        for area_number, cards in enumerate(groups, start=1):
-            for card in cards:
-                await card.evaluate(
-                    "card => card.dataset.viralReporterCapture = 'true'"
-                )
-            try:
-                await self.page.evaluate(
-                    """() => {
-                        for (const card of document.querySelectorAll(
-                            '[data-viral-reporter-match="true"]'
-                        )) {
-                            card.style.outlineColor =
-                                card.dataset.viralReporterCapture === 'true'
-                                    ? 'red'
-                                    : 'transparent';
-                        }
-                    }"""
-                )
-                paths.append(
-                    await self.take_screenshot(
-                        index=index,
-                        keyword=keyword,
-                        output_dir=output_dir,
-                        matched_cards=cards,
-                        screenshot_all_posts=screenshot_all_posts,
-                        area_number=area_number if len(groups) > 1 else None,
-                    )
-                )
-            finally:
-                for card in cards:
-                    await card.evaluate(
-                        "card => delete card.dataset.viralReporterCapture"
-                    )
-        return paths
+        return [
+            await self.take_screenshot(
+                index=index,
+                keyword=keyword,
+                output_dir=output_dir,
+                matched_cards=matched_cards,
+                screenshot_all_posts=screenshot_all_posts,
+            )
+        ]
 
     async def take_screenshot(
         self,
@@ -190,10 +164,8 @@ class NaverIntegratedSearchPage:
         output_dir: Path,
         matched_cards: list[ElementHandle],
         screenshot_all_posts: bool,
-        area_number: int | None = None,
     ) -> Path:
         output_dir.mkdir(parents=True, exist_ok=True)
-        area_suffix = f"_영역{area_number}" if area_number else ""
-        path = output_dir / f"{index}_{keyword.replace(' ', '_')}{area_suffix}.png"
+        path = output_dir / f"{index}_{keyword.replace(' ', '_')}.png"
         await self.page.screenshot(path=path, full_page=True)
         return path
