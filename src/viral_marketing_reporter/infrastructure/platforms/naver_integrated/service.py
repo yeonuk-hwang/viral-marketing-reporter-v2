@@ -5,7 +5,7 @@ from urllib.parse import urlsplit
 
 import httpx
 from loguru import logger
-from playwright.async_api import Locator, Page
+from playwright.async_api import ElementHandle, Page
 
 from viral_marketing_reporter.domain.model import Keyword, Post, Screenshot, SearchResult
 from viral_marketing_reporter.infrastructure.platforms.base import SearchPlatformService
@@ -35,13 +35,14 @@ class PlaywrightNaverIntegratedSearchService(SearchPlatformService):
 
     async def _direct_matches(
         self, search_page: NaverIntegratedSearchPage, target_keys: set[str]
-    ) -> dict[str, list[Locator]]:
-        matches: dict[str, list[Locator]] = {}
+    ) -> dict[str, list[ElementHandle]]:
+        matches: dict[str, list[ElementHandle]] = {}
         for link in await search_page.result_links():
             href = await link.get_attribute("href")
             if (
                 href
                 and await link.is_visible()
+                and await search_page.is_primary_result_link(link)
                 and (key := normalize_naver_blog_url(href)) in target_keys
             ):
                 matches.setdefault(key, []).append(link)
@@ -105,11 +106,15 @@ class PlaywrightNaverIntegratedSearchService(SearchPlatformService):
         self,
         search_page: NaverIntegratedSearchPage,
         target_keys: set[str],
-    ) -> dict[str, list[Locator]]:
+    ) -> dict[str, list[ElementHandle]]:
         links = await search_page.influencer_content_links()
-        visible_links: list[tuple[str, Locator]] = []
+        visible_links: list[tuple[str, ElementHandle]] = []
         for link in links:
-            if await link.is_visible() and (href := await link.get_attribute("href")):
+            if (
+                await link.is_visible()
+                and await search_page.is_primary_result_link(link)
+                and (href := await link.get_attribute("href"))
+            ):
                 visible_links.append((href, link))
 
         unique_hrefs = list(dict.fromkeys(href for href, _ in visible_links))
@@ -122,7 +127,7 @@ class PlaywrightNaverIntegratedSearchService(SearchPlatformService):
             )
         key_by_href = dict(zip(unique_hrefs, resolved, strict=True))
 
-        matches: dict[str, list[Locator]] = {}
+        matches: dict[str, list[ElementHandle]] = {}
         for href, link in visible_links:
             key = key_by_href[href]
             if key and key in target_keys:
@@ -151,11 +156,43 @@ class PlaywrightNaverIntegratedSearchService(SearchPlatformService):
             for key, links in influencer_matches.items():
                 matches.setdefault(key, []).extend(links)
 
-            matched_cards = [
-                await search_page.highlight_result_for_link(link)
-                for links in matches.values()
-                for link in links
-            ]
+            matched_cards: list[ElementHandle] = []
+            verified_match_keys: set[str] = set()
+            influencer_resolution_cache: dict[str, str | None] = {}
+            async with httpx.AsyncClient(
+                headers={"User-Agent": "Mozilla/5.0"},
+            ) as client:
+                for expected_key, links in matches.items():
+                    for link in links:
+                        if not await link.is_visible():
+                            continue
+                        href = await link.get_attribute("href")
+                        if not href:
+                            continue
+
+                        actual_key = normalize_naver_blog_url(href)
+                        if actual_key is None:
+                            if href not in influencer_resolution_cache:
+                                influencer_resolution_cache[href] = (
+                                    await self._resolve_influencer_url(client, href)
+                                )
+                            actual_key = influencer_resolution_cache[href]
+
+                        # 검색 결과 DOM이 갱신됐거나 다른 링크를 가리키면 강조하지 않습니다.
+                        if actual_key != expected_key:
+                            logger.warning(
+                                "강조 직전 게시물 링크 불일치",
+                                event_name="integrated_match_revalidation_failed",
+                                expected_key=expected_key,
+                                actual_key=actual_key,
+                                href=href,
+                            )
+                            continue
+
+                        matched_cards.append(
+                            await search_page.highlight_result_for_link(link)
+                        )
+                        verified_match_keys.add(expected_key)
             screenshot_paths: list[Path] = []
             if matched_cards or screenshot_all_posts:
                 screenshot_paths = await search_page.take_screenshots(
@@ -167,7 +204,11 @@ class PlaywrightNaverIntegratedSearchService(SearchPlatformService):
                 )
 
             return SearchResult(
-                found_posts=[target_by_key[key] for key in target_by_key if key in matches],
+                found_posts=[
+                    target_by_key[key]
+                    for key in target_by_key
+                    if key in verified_match_keys
+                ],
                 screenshot=Screenshot(file_path=screenshot_paths[0])
                 if screenshot_paths
                 else None,

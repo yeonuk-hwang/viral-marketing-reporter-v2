@@ -155,6 +155,7 @@ async def test_direct_matches_keeps_every_visible_occurrence(mocker):
     second_link.is_visible.return_value = True
     search_page = mocker.AsyncMock()
     search_page.result_links.return_value = [first_link, second_link]
+    search_page.is_primary_result_link.return_value = True
 
     result = await service._direct_matches(
         search_page, {"choco520/224364092012"}
@@ -163,3 +164,21 @@ async def test_direct_matches_keeps_every_visible_occurrence(mocker):
     assert result == {
         "choco520/224364092012": [first_link, second_link]
     }
+
+
+async def test_direct_matches_excludes_related_post_links(mocker):
+    service = PlaywrightNaverIntegratedSearchService(mocker.Mock())
+    related_link = mocker.AsyncMock()
+    related_link.get_attribute.return_value = (
+        "https://blog.naver.com/pooh3653/224367478462"
+    )
+    related_link.is_visible.return_value = True
+    search_page = mocker.AsyncMock()
+    search_page.result_links.return_value = [related_link]
+    search_page.is_primary_result_link.return_value = False
+
+    result = await service._direct_matches(
+        search_page, {"pooh3653/224367478462"}
+    )
+
+    assert result == {}

@@ -23,13 +23,45 @@ class NaverIntegratedSearchPage:
         await self.page.goto(search_url, wait_until="domcontentloaded")
         await self.main_pack.wait_for(state="visible", timeout=60_000)
 
-    async def result_links(self) -> list[Locator]:
-        return await self.main_pack.locator("a[href]").all()
+    async def result_links(self) -> list[ElementHandle]:
+        """현재 DOM에 고정된 링크 핸들을 반환합니다.
 
-    async def influencer_content_links(self) -> list[Locator]:
+        네이버가 검색 결과 DOM을 비동기로 갱신하므로 nth 기반 Locator를 보관하면
+        나중에 다른 링크를 가리킬 수 있습니다.
+        """
+        return await self.main_pack.locator("a[href]").element_handles()
+
+    async def influencer_content_links(self) -> list[ElementHandle]:
         return await self.main_pack.locator(
             "a[href*='in.naver.com/'][href*='/contents/']"
-        ).all()
+        ).element_handles()
+
+    async def is_primary_result_link(self, link: ElementHandle) -> bool:
+        """연관·시리즈·클러스터 링크가 아닌 실제 노출 링크인지 확인합니다."""
+        return await link.evaluate(
+            """anchor => {
+                const heatmapTarget = (
+                    anchor.getAttribute('data-heatmap-target') || ''
+                ).toLowerCase();
+                if (/(?:^|[._-])(series|related|cluster)(?:$|[._-])/.test(
+                    heatmapTarget
+                )) return false;
+
+                let element = anchor;
+                while (element && element.id !== 'main_pack') {
+                    const marker = [
+                        element.getAttribute('data-template-id') || '',
+                        element.getAttribute('data-testid') || '',
+                        element.getAttribute('data-module') || '',
+                    ].join(' ').toLowerCase();
+                    if (/(?:^|[ _-])(series|related|cluster)(?:$|[ _-])/.test(
+                        marker
+                    )) return false;
+                    element = element.parentElement;
+                }
+                return true;
+            }"""
+        )
 
     async def load_lazy_content(self) -> None:
         """전체 페이지를 순회해 지연 로딩 이미지와 썸네일을 미리 불러옵니다."""
@@ -64,7 +96,7 @@ class NaverIntegratedSearchPage:
             }"""
         )
 
-    async def highlight_result_for_link(self, link: Locator) -> ElementHandle:
+    async def highlight_result_for_link(self, link: ElementHandle) -> ElementHandle:
         """링크를 포함하는 가장 가까운 결과 카드에 테두리를 표시합니다."""
         await self.page.evaluate(
             """() => {
@@ -98,7 +130,7 @@ class NaverIntegratedSearchPage:
                 let fallback = anchor;
                 while (element && element.id !== 'main_pack') {
                     const box = element.getBoundingClientRect();
-                    if (box.width >= 450 && box.height >= 90 && box.height <= 900) {
+                    if (box.width >= 450 && box.height >= 90 && box.height <= 600) {
                         if ([...element.classList].some(name =>
                             name.includes('single-intention-item-list')
                         )) break;
@@ -118,6 +150,18 @@ class NaverIntegratedSearchPage:
                                             const parts = url.pathname.split('/').filter(Boolean);
                                             if (parts.length >= 2 && /^\\d+$/.test(parts[1])) {
                                                 return 'blog.naver.com/' + parts[0] + '/' + parts[1];
+                                            }
+                                        }
+                                        if (url.hostname === 'cafe.naver.com' ||
+                                            url.hostname === 'm.cafe.naver.com') {
+                                            const parts = url.pathname.split('/').filter(Boolean);
+                                            if (parts.length >= 2 && /^\\d+$/.test(parts[1])) {
+                                                return 'cafe.naver.com/' + parts[0] + '/' + parts[1];
+                                            }
+                                            const articleId = url.searchParams.get('articleid');
+                                            const clubId = url.searchParams.get('clubid');
+                                            if (articleId) {
+                                                return 'cafe.naver.com/' + (clubId || '') + '/' + articleId;
                                             }
                                         }
                                     } catch (_) {}
@@ -167,5 +211,35 @@ class NaverIntegratedSearchPage:
     ) -> Path:
         output_dir.mkdir(parents=True, exist_ok=True)
         path = output_dir / f"{index}_{keyword.replace(' ', '_')}.png"
-        await self.page.screenshot(path=path, full_page=True)
+        content_bounds = await self.page.evaluate(
+            """() => {
+                const mainPack = document.querySelector('#main_pack');
+                if (!mainPack) return null;
+                const box = mainPack.getBoundingClientRect();
+                return box.width > 0 ? {width: box.width} : null;
+            }"""
+        )
+        if not content_bounds:
+            raise ScreenshotTargetMissingError(
+                "통합검색 페이지의 캡처 영역을 계산하지 못했습니다."
+            )
+        viewport = self.page.viewport_size or {"width": 1920, "height": 1080}
+        await self.page.set_viewport_size(
+            {
+                "width": max(700, round(content_bounds["width"])),
+                "height": viewport["height"],
+            }
+        )
+        # 폭 변경 시 네이버가 결과 카드와 이미지를 다시 렌더링합니다.
+        await self.load_lazy_content()
+        document_height = await self.page.evaluate(
+            "() => document.documentElement.scrollHeight"
+        )
+        await self.page.set_viewport_size(
+            {
+                "width": max(700, round(content_bounds["width"])),
+                "height": round(document_height),
+            }
+        )
+        await self.page.screenshot(path=path)
         return path
