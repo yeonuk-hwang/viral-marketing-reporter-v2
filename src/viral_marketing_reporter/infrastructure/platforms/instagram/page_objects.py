@@ -397,12 +397,38 @@ class InstagramSearchPage:
     async def highlight_element(self, element: Locator) -> None:
         """주어진 요소에 빨간색 테두리를 적용합니다."""
         await element.evaluate(
-            '(element) => { element.style.border = "5px solid red"; element.style.display = "block"; }'
+            """(element) => {
+                element.style.setProperty("outline", "5px solid red", "important");
+                element.style.setProperty("outline-offset", "-5px", "important");
+                element.style.setProperty("position", "relative", "important");
+                element.style.setProperty("z-index", "1", "important");
+            }"""
         )
+
+    async def highlight_posts_by_ids(self, post_ids: set[str]) -> int:
+        """현재 DOM에서 게시물 ID를 다시 찾아 강조하고 적용 개수를 반환합니다.
+
+        Instagram은 스크롤 또는 미디어 로딩 중 검색 카드 DOM을 교체할 수 있으므로,
+        스크린샷 직전에 새 Locator를 조회해야 강조 스타일이 유실되지 않습니다.
+        """
+        highlighted_count = 0
+        for post in await self.get_top_10_posts():
+            href = await post.get_attribute("href")
+            if not href:
+                continue
+            match = re.search(r"/(?:p|reel)/([\w-]+)/?", href)
+            if match and match.group(1) in post_ids:
+                await self.highlight_element(post)
+                highlighted_count += 1
+        return highlighted_count
 
     @log_function_call
     async def take_screenshot_of_results(
-        self, index: int, keyword: str, output_dir: Path
+        self,
+        index: int,
+        keyword: str,
+        output_dir: Path,
+        highlighted_post_ids: set[str] | None = None,
     ) -> Path:
         """검색 결과 페이지의 상위 10개 포스트 영역을 스크린샷으로 찍고 파일 경로를 반환합니다."""
         tracker = PerformanceTracker(f"instagram_screenshot_{keyword}")
@@ -537,6 +563,21 @@ class InstagramSearchPage:
                 output_path=str(screenshot_path),
                 event_name="screenshot_capture_start",
             )
+
+            # 스크롤, 미디어 로딩, viewport 변경 중 교체된 카드에도 스크린샷
+            # 직전에 강조를 다시 적용합니다.
+            if highlighted_post_ids:
+                highlighted_count = await self.highlight_posts_by_ids(
+                    highlighted_post_ids
+                )
+                logger.debug(
+                    "스크린샷 직전 포스트 하이라이트 재적용",
+                    keyword=keyword,
+                    requested_count=len(highlighted_post_ids),
+                    highlighted_count=highlighted_count,
+                    event_name="highlight_reapplied",
+                )
+
             await self.page.screenshot(path=screenshot_path, clip=clip)
             tracker.checkpoint("screenshot_captured")
 

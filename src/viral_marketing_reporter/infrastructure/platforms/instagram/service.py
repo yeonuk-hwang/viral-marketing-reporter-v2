@@ -159,9 +159,6 @@ class PlaywrightInstagramService(SearchPlatformService):
                 found_posts_in_top10: list[Post] = [
                     post for post in matching_results if post
                 ]
-                elements_to_highlight: list[Locator] = [
-                    top_10_posts[i] for i, post in enumerate(matching_results) if post
-                ]
 
                 logger.info(
                     f"포스트 매칭 완료",
@@ -175,21 +172,6 @@ class PlaywrightInstagramService(SearchPlatformService):
                 should_take_screenshot = screenshot_all_posts or found_posts_in_top10
 
                 if should_take_screenshot:
-                    # 매칭된 포스트가 있으면 하이라이트 적용
-                    if found_posts_in_top10:
-                        logger.debug(
-                            "매칭된 포스트 하이라이트 적용",
-                            keyword=keyword.text,
-                            highlight_count=len(elements_to_highlight),
-                            event_name="highlight_start",
-                        )
-                        highlight_tasks = [
-                            search_page.highlight_element(element)
-                            for element in elements_to_highlight
-                        ]
-                        await asyncio.gather(*highlight_tasks)
-                        tracker.checkpoint("posts_highlighted")
-
                     logger.debug(
                         "스크린샷 촬영 시작",
                         keyword=keyword.text,
@@ -197,7 +179,14 @@ class PlaywrightInstagramService(SearchPlatformService):
                         event_name="screenshot_start",
                     )
                     screenshot_path = await search_page.take_screenshot_of_results(
-                        index, keyword.text, output_dir
+                        index,
+                        keyword.text,
+                        output_dir,
+                        highlighted_post_ids={
+                            post_id
+                            for post in found_posts_in_top10
+                            if (post_id := self._extract_post_id(post.url))
+                        },
                     )
                     tracker.checkpoint("screenshot_taken")
                     logger.info(

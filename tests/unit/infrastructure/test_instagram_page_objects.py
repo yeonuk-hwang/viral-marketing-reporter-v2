@@ -163,6 +163,21 @@ async def test_get_top_10_posts_limits_results_to_two_five_column_rows() -> None
 
 
 @pytest.mark.asyncio
+async def test_highlight_posts_by_ids_reacquires_and_highlights_matching_post() -> None:
+    posts = [MagicMock(), MagicMock()]
+    posts[0].get_attribute = AsyncMock(return_value="/p/DcQL8sCiN1O/")
+    posts[1].get_attribute = AsyncMock(return_value="/p/unrelated/")
+    search_page = InstagramSearchPage(MagicMock())
+    search_page.get_top_10_posts = AsyncMock(return_value=posts)  # type: ignore[method-assign]
+    search_page.highlight_element = AsyncMock()  # type: ignore[method-assign]
+
+    count = await search_page.highlight_posts_by_ids({"DcQL8sCiN1O"})
+
+    assert count == 1
+    search_page.highlight_element.assert_awaited_once_with(posts[0])
+
+
+@pytest.mark.asyncio
 async def test_wait_for_post_media_waits_for_video_frame() -> None:
     page = MagicMock()
     page.evaluate = AsyncMock(return_value={"total": 10, "videos": 3, "ready": 10})
