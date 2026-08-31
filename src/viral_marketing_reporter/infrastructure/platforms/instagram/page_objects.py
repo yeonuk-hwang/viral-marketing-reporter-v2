@@ -397,11 +397,27 @@ class InstagramSearchPage:
     async def highlight_element(self, element: Locator) -> None:
         """주어진 요소에 빨간색 테두리를 적용합니다."""
         await element.evaluate(
-            """(element) => {
-                element.style.setProperty("outline", "5px solid red", "important");
-                element.style.setProperty("outline-offset", "-5px", "important");
+            """async (element) => {
                 element.style.setProperty("position", "relative", "important");
-                element.style.setProperty("z-index", "1", "important");
+
+                let overlay = element.querySelector(":scope > [data-viral-reporter-highlight]");
+                if (!overlay) {
+                    overlay = document.createElement("div");
+                    overlay.dataset.viralReporterHighlight = "true";
+                    overlay.setAttribute("aria-hidden", "true");
+                    element.appendChild(overlay);
+                }
+
+                overlay.style.setProperty("position", "absolute", "important");
+                overlay.style.setProperty("inset", "0", "important");
+                overlay.style.setProperty("border", "6px solid red", "important");
+                overlay.style.setProperty("box-sizing", "border-box", "important");
+                overlay.style.setProperty("z-index", "2147483647", "important");
+                overlay.style.setProperty("pointer-events", "none", "important");
+
+                await new Promise(resolve => requestAnimationFrame(
+                    () => requestAnimationFrame(resolve)
+                ));
             }"""
         )
 

@@ -178,6 +178,21 @@ async def test_highlight_posts_by_ids_reacquires_and_highlights_matching_post() 
 
 
 @pytest.mark.asyncio
+async def test_highlight_element_adds_topmost_red_overlay() -> None:
+    element = MagicMock()
+    element.evaluate = AsyncMock()
+    search_page = InstagramSearchPage(MagicMock())
+
+    await search_page.highlight_element(element)
+
+    script = element.evaluate.await_args.args[0]
+    assert "data-viral-reporter-highlight" in script
+    assert '"6px solid red"' in script
+    assert '"2147483647"' in script
+    assert "requestAnimationFrame" in script
+
+
+@pytest.mark.asyncio
 async def test_wait_for_post_media_waits_for_video_frame() -> None:
     page = MagicMock()
     page.evaluate = AsyncMock(return_value={"total": 10, "videos": 3, "ready": 10})
