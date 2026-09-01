@@ -531,7 +531,7 @@ wheels = [
 
 [[package]]
 name = "viral-marketing-reporter"
-version = "2.3.9"
+version = "2.3.10"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },
