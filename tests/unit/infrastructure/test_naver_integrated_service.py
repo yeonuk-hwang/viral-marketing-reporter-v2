@@ -3,6 +3,7 @@ import httpx
 from viral_marketing_reporter.infrastructure.platforms.naver_integrated.service import (
     PlaywrightNaverIntegratedSearchService,
     normalize_naver_blog_url,
+    normalize_naver_post_url,
 )
 
 
@@ -23,6 +24,34 @@ def test_normalize_naver_blog_url_rejects_non_post_urls():
     assert normalize_naver_blog_url("https://in.naver.com/choco520") is None
     assert normalize_naver_blog_url("https://blog.naver.com/choco520") is None
     assert normalize_naver_blog_url("https://example.com/choco520/224364092012") is None
+
+
+def test_normalize_naver_post_url_handles_cafe_search_result_parameters():
+    for url in (
+        "https://cafe.naver.com/pusanmom/4268377",
+        "https://cafe.naver.com/dgmom365/7375700",
+        "https://cafe.naver.com/miznett/5081270",
+        "https://cafe.naver.com/usem/2580635",
+        "https://cafe.naver.com/ilovegm1/2644461",
+    ):
+        cafe_name, article_id = url.rstrip("/").rsplit("/", 2)[-2:]
+        assert normalize_naver_post_url(url) == f"{cafe_name}/{article_id}"
+
+    assert (
+        normalize_naver_post_url(
+            "https://cafe.naver.com/usem/2580635?art=signed-search-token"
+        )
+        == "usem/2580635"
+    )
+    assert (
+        normalize_naver_post_url("https://m.cafe.naver.com/USEM/2580635")
+        == "usem/2580635"
+    )
+
+
+def test_normalize_naver_post_url_rejects_non_post_cafe_urls():
+    assert normalize_naver_post_url("https://cafe.naver.com/usem") is None
+    assert normalize_naver_post_url("https://cafe.naver.com/") is None
 
 
 async def test_resolve_influencer_url_follows_redirect_to_original_blog(mocker):
@@ -144,6 +173,22 @@ async def test_take_screenshots_creates_one_file_for_all_matched_areas(mocker):
     )
 
 
+async def test_remove_whale_promotional_banners_uses_scoped_selectors(mocker):
+    from viral_marketing_reporter.infrastructure.platforms.naver_integrated.page_objects import (
+        NaverIntegratedSearchPage,
+    )
+
+    page = mocker.Mock()
+    page.evaluate = mocker.AsyncMock()
+
+    await NaverIntegratedSearchPage(page).remove_whale_promotional_banners()
+
+    script = page.evaluate.await_args.args[0]
+    assert "._fe_whale_banner_top" in script
+    assert "._fe_whale_banner_bottom" in script
+    assert "type_whale_banner" in script
+
+
 async def test_direct_matches_keeps_every_visible_occurrence(mocker):
     service = PlaywrightNaverIntegratedSearchService(mocker.Mock())
     url = "https://blog.naver.com/choco520/224364092012"
@@ -164,6 +209,22 @@ async def test_direct_matches_keeps_every_visible_occurrence(mocker):
     assert result == {
         "choco520/224364092012": [first_link, second_link]
     }
+
+
+async def test_direct_matches_accepts_cafe_search_result_url(mocker):
+    service = PlaywrightNaverIntegratedSearchService(mocker.Mock())
+    link = mocker.AsyncMock()
+    link.get_attribute.return_value = (
+        "https://cafe.naver.com/usem/2580635?art=signed-search-token"
+    )
+    link.is_visible.return_value = True
+    search_page = mocker.AsyncMock()
+    search_page.result_links.return_value = [link]
+    search_page.is_primary_result_link.return_value = True
+
+    result = await service._direct_matches(search_page, {"usem/2580635"})
+
+    assert result == {"usem/2580635": [link]}
 
 
 async def test_direct_matches_excludes_related_post_links(mocker):

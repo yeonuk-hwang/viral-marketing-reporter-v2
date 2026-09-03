@@ -18,12 +18,26 @@ BLOG_POST_PATTERN = re.compile(
     r"^https?://(?:m\.)?blog\.naver\.com/([^/?#]+)/([0-9]+)(?:[/?#].*)?$",
     re.IGNORECASE,
 )
+CAFE_POST_PATTERN = re.compile(
+    r"^https?://(?:m\.)?cafe\.naver\.com/([^/?#]+)/([0-9]+)(?:[/?#].*)?$",
+    re.IGNORECASE,
+)
 INFLUENCER_CONTENT_PATTERN = re.compile(r"^/[^/]+/contents/(?:internal/)?\d+/?$")
 
 
 def normalize_naver_blog_url(url: str) -> str | None:
     """네이버 블로그 URL을 모바일/쿼리와 무관한 게시물 키로 변환합니다."""
     match = BLOG_POST_PATTERN.match(url.strip())
+    if not match:
+        return None
+    return f"{match.group(1).lower()}/{match.group(2)}"
+
+
+def normalize_naver_post_url(url: str) -> str | None:
+    """네이버 블로그·카페 URL을 서비스 내 게시물 키로 변환합니다."""
+    if key := normalize_naver_blog_url(url):
+        return key
+    match = CAFE_POST_PATTERN.match(url.strip())
     if not match:
         return None
     return f"{match.group(1).lower()}/{match.group(2)}"
@@ -43,7 +57,7 @@ class PlaywrightNaverIntegratedSearchService(SearchPlatformService):
                 href
                 and await link.is_visible()
                 and await search_page.is_primary_result_link(link)
-                and (key := normalize_naver_blog_url(href)) in target_keys
+                and (key := normalize_naver_post_url(href)) in target_keys
             ):
                 matches.setdefault(key, []).append(link)
         return matches
@@ -78,7 +92,7 @@ class PlaywrightNaverIntegratedSearchService(SearchPlatformService):
         influencer_inputs: list[tuple[int, str]] = []
 
         for index, post in enumerate(posts_to_find):
-            if key := normalize_naver_blog_url(post.url):
+            if key := normalize_naver_post_url(post.url):
                 resolved[index] = key
             else:
                 influencer_inputs.append((index, post.url))
@@ -170,7 +184,7 @@ class PlaywrightNaverIntegratedSearchService(SearchPlatformService):
                         if not href:
                             continue
 
-                        actual_key = normalize_naver_blog_url(href)
+                        actual_key = normalize_naver_post_url(href)
                         if actual_key is None:
                             if href not in influencer_resolution_cache:
                                 influencer_resolution_cache[href] = (

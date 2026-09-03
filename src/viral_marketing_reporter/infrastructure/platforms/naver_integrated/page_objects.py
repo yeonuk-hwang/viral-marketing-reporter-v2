@@ -96,6 +96,18 @@ class NaverIntegratedSearchPage:
             }"""
         )
 
+    async def remove_whale_promotional_banners(self) -> None:
+        """검색 결과 캡처를 가리는 네이버 웨일 설치 배너를 제거합니다."""
+        await self.page.evaluate(
+            """() => {
+                document.querySelectorAll(
+                    '._fe_whale_banner_top, ._fe_whale_banner_bottom'
+                ).forEach(element => element.remove());
+                document.querySelector('#header_wrap')
+                    ?.classList.remove('type_whale_banner');
+            }"""
+        )
+
     async def highlight_result_for_link(self, link: ElementHandle) -> ElementHandle:
         """링크를 포함하는 가장 가까운 결과 카드에 테두리를 표시합니다."""
         await self.page.evaluate(
@@ -126,6 +138,18 @@ class NaverIntegratedSearchPage:
         )
         card = await link.evaluate_handle(
             """anchor => {
+                // 최신 통합검색 UGC 결과는 게시물 본문에 명시적인 표식을
+                // 제공합니다. 작성자·댓글 링크가 함께 있어도 하나의 게시물인
+                // 이 컨테이너를 크기 기반 추정보다 우선합니다.
+                const ugcItem = anchor.closest('[data-template-id="ugcItem"]');
+                if (ugcItem) {
+                    const card = ugcItem.closest(
+                        '[class*="single-intention-item-list"]'
+                    ) || ugcItem;
+                    card.dataset.viralReporterMatch = 'true';
+                    return card;
+                }
+
                 let element = anchor;
                 let fallback = anchor;
                 while (element && element.id !== 'main_pack') {
@@ -232,6 +256,7 @@ class NaverIntegratedSearchPage:
         )
         # 폭 변경 시 네이버가 결과 카드와 이미지를 다시 렌더링합니다.
         await self.load_lazy_content()
+        await self.remove_whale_promotional_banners()
         document_height = await self.page.evaluate(
             "() => document.documentElement.scrollHeight"
         )
