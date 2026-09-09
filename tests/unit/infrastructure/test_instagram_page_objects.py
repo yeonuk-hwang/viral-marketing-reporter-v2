@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -236,3 +237,42 @@ def test_screenshot_clip_infers_grid_from_single_post() -> None:
     )
 
     assert clip == {"x": 0, "y": 0, "width": 1456.0, "height": 835.0}
+
+
+def test_save_capture_diagnostics_writes_support_report(tmp_path: Path) -> None:
+    search_page = InstagramSearchPage(MagicMock())
+    search_page.network_failure_count = 2
+    path = tmp_path / "capture_diagnostic.json"
+
+    search_page._save_capture_diagnostics(
+        path,
+        keyword="테스트",
+        requested_post_ids={"target"},
+        highlighted_count=1,
+        media_status={"total": 1, "videos": 0, "ready": 1},
+        boxes=[{"x": 1, "y": 2, "width": 3, "height": 4}],
+        clip={"x": 0, "y": 0, "width": 10, "height": 10},
+        stages=[{"stage": "after_highlight", "posts": []}],
+    )
+
+    report = json.loads(path.read_text(encoding="utf-8"))
+    assert report["schema_version"] == 1
+    assert report["requested_post_ids"] == ["target"]
+    assert report["highlighted_count"] == 1
+    assert report["browser_errors"]["network"] == 2
+    assert report["stages"][0]["stage"] == "after_highlight"
+
+
+@pytest.mark.asyncio
+async def test_diagnostic_collection_failure_does_not_break_capture() -> None:
+    search_page = InstagramSearchPage(MagicMock())
+    search_page._collect_capture_diagnostics = AsyncMock(  # type: ignore[method-assign]
+        side_effect=RuntimeError("DOM changed")
+    )
+
+    result = await search_page._safe_collect_capture_diagnostics(
+        "after_media", {"target"}
+    )
+
+    assert result["stage"] == "after_media"
+    assert result["collection_error"] == "RuntimeError"

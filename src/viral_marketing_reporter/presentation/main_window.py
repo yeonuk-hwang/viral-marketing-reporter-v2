@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QLabel,
     QMainWindow,
+    QMessageBox,
     QProgressBar,
     QPushButton,
     QSizePolicy,
@@ -35,6 +36,9 @@ from viral_marketing_reporter.domain.events import JobCompleted, TaskCompleted
 from viral_marketing_reporter.domain.message_bus import MessageBus
 from viral_marketing_reporter.domain.model import Platform
 from viral_marketing_reporter.infrastructure.paths import get_data_dir
+from viral_marketing_reporter.infrastructure.support_bundle import (
+    create_instagram_support_bundle,
+)
 from viral_marketing_reporter.presentation.results_dialog import ResultsDialog
 from viral_marketing_reporter.presentation.widgets import PastingTableWidget
 
@@ -203,6 +207,22 @@ class MainWindow(QMainWindow):
         self.open_data_folder_button.clicked.connect(self.open_data_folder)
         button_layout.addWidget(self.open_data_folder_button)
 
+        self.create_diagnostic_bundle_button = QPushButton(
+            "Instagram 진단 ZIP 만들기"
+        )
+        self.create_diagnostic_bundle_button.setStyleSheet(
+            "QPushButton { background-color: #7952b3; max-width: 210px; }"
+            "QPushButton:hover { background-color: #614092; }"
+        )
+        self.create_diagnostic_bundle_button.setToolTip(
+            "가장 최근 Instagram 결과와 debug.log를 하나의 ZIP으로 만듭니다. "
+            "로그인 세션은 포함하지 않습니다."
+        )
+        self.create_diagnostic_bundle_button.clicked.connect(
+            self.create_instagram_diagnostic_bundle
+        )
+        button_layout.addWidget(self.create_diagnostic_bundle_button)
+
         # Instagram 로그아웃 버튼
         self.instagram_logout_button = QPushButton("Instagram 로그아웃")
         self.instagram_logout_button.setStyleSheet(
@@ -250,6 +270,36 @@ class MainWindow(QMainWindow):
     def open_data_folder(self):
         """데이터 폴더 열기"""
         self._open_folder(get_data_dir(), "data")
+
+    @Slot()
+    def create_instagram_diagnostic_bundle(self):
+        """최근 Instagram 작업과 로그를 고객 전달용 ZIP으로 생성합니다."""
+        try:
+            bundle_path = create_instagram_support_bundle()
+            logger.info(
+                "Instagram 고객 지원용 진단 ZIP 생성 완료",
+                bundle_path=str(bundle_path),
+                event_name="instagram_support_bundle_created",
+            )
+            QMessageBox.information(
+                self,
+                "진단 ZIP 생성 완료",
+                f"다음 파일을 담당자에게 전달해주세요.\n\n{bundle_path}",
+            )
+            self._open_folder(bundle_path.parent, "instagram_support_bundle")
+        except FileNotFoundError as error:
+            QMessageBox.warning(self, "진단 자료 없음", str(error))
+        except Exception as error:
+            logger.exception(
+                "Instagram 고객 지원용 진단 ZIP 생성 실패",
+                error=str(error),
+                event_name="instagram_support_bundle_failed",
+            )
+            QMessageBox.critical(
+                self,
+                "진단 ZIP 생성 실패",
+                f"진단 ZIP을 만들지 못했습니다.\n{error}",
+            )
 
     def _open_folder(self, folder: Path, folder_type: str) -> None:
         try:

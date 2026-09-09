@@ -1,5 +1,7 @@
-from pathlib import Path
+import json
 import re
+from datetime import UTC, datetime
+from pathlib import Path
 from urllib.parse import quote
 from urllib.parse import urlsplit
 
@@ -438,6 +440,158 @@ class InstagramSearchPage:
                 highlighted_count += 1
         return highlighted_count
 
+    async def _collect_capture_diagnostics(
+        self, stage: str, requested_post_ids: set[str]
+    ) -> dict[str, object]:
+        """개인정보를 제외한 검색 카드·강조 상태를 단계별로 수집합니다."""
+        return await self.page.evaluate(
+            r"""({selector, postCount, stage, requestedPostIds}) => {
+                const roundBox = element => {
+                    if (!element) return null;
+                    const box = element.getBoundingClientRect();
+                    return {
+                        x: Math.round(box.x),
+                        y: Math.round(box.y),
+                        width: Math.round(box.width),
+                        height: Math.round(box.height),
+                    };
+                };
+                const safePath = href => {
+                    if (!href) return null;
+                    try {
+                        return new URL(href, location.origin).pathname;
+                    } catch (_) {
+                        return null;
+                    }
+                };
+                const postId = href => {
+                    const match = (href || '').match(/\/(?:p|reel)\/([\w-]+)/);
+                    return match ? match[1] : null;
+                };
+
+                const posts = [...document.querySelectorAll(selector)]
+                    .slice(0, postCount)
+                    .map((post, index) => {
+                        const href = post.getAttribute('href');
+                        const overlay = post.querySelector(
+                            ':scope > [data-viral-reporter-highlight]'
+                        );
+                        const overlayStyle = overlay ? getComputedStyle(overlay) : null;
+                        const media = [...post.querySelectorAll('img, video')];
+                        return {
+                            index: index + 1,
+                            post_id: postId(href),
+                            path: safePath(href),
+                            connected: post.isConnected,
+                            visible: Boolean(post.offsetWidth || post.offsetHeight),
+                            box: roundBox(post),
+                            media: {
+                                total: media.length,
+                                ready: media.filter(element =>
+                                    element instanceof HTMLImageElement
+                                        ? element.complete && element.naturalWidth > 0
+                                        : element instanceof HTMLVideoElement &&
+                                          element.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
+                                          element.videoWidth > 0
+                                ).length,
+                                videos: media.filter(
+                                    element => element instanceof HTMLVideoElement
+                                ).length,
+                            },
+                            highlight: {
+                                requested: requestedPostIds.includes(postId(href)),
+                                present: Boolean(overlay),
+                                box: roundBox(overlay),
+                                display: overlayStyle?.display || null,
+                                visibility: overlayStyle?.visibility || null,
+                                opacity: overlayStyle?.opacity || null,
+                                z_index: overlayStyle?.zIndex || null,
+                            },
+                        };
+                    });
+
+                return {
+                    stage,
+                    captured_at: new Date().toISOString(),
+                    page: {
+                        path: location.pathname,
+                        title: document.title,
+                        ready_state: document.readyState,
+                        viewport: {
+                            width: window.innerWidth,
+                            height: window.innerHeight,
+                            device_pixel_ratio: window.devicePixelRatio,
+                        },
+                        language: navigator.language,
+                        platform: navigator.platform,
+                    },
+                    post_count: document.querySelectorAll(selector).length,
+                    posts,
+                };
+            }""",
+            {
+                "selector": self.POST_SELECTOR,
+                "postCount": self.SCREENSHOT_POST_COUNT,
+                "stage": stage,
+                "requestedPostIds": sorted(requested_post_ids),
+            },
+        )
+
+    async def _safe_collect_capture_diagnostics(
+        self, stage: str, requested_post_ids: set[str]
+    ) -> dict[str, object]:
+        """진단 수집 실패가 정상 스크린샷을 방해하지 않도록 보호합니다."""
+        try:
+            return await self._collect_capture_diagnostics(
+                stage, requested_post_ids
+            )
+        except Exception as error:
+            logger.warning(
+                "Instagram 캡처 단계 진단 수집 실패",
+                stage=stage,
+                error=str(error),
+                error_type=error.__class__.__name__,
+                event_name="instagram_capture_diagnostics_collect_failed",
+            )
+            return {
+                "stage": stage,
+                "captured_at": datetime.now(UTC).isoformat(),
+                "collection_error": error.__class__.__name__,
+            }
+
+    def _save_capture_diagnostics(
+        self,
+        path: Path,
+        *,
+        keyword: str,
+        requested_post_ids: set[str],
+        highlighted_count: int,
+        media_status: dict[str, int],
+        boxes: list[FloatRect],
+        clip: FloatRect,
+        stages: list[dict[str, object]],
+    ) -> None:
+        report = {
+            "schema_version": 1,
+            "created_at": datetime.now(UTC).isoformat(),
+            "keyword": keyword,
+            "requested_post_ids": sorted(requested_post_ids),
+            "highlighted_count": highlighted_count,
+            "media_status": media_status,
+            "box_count": len(boxes),
+            "clip": clip,
+            "browser_errors": {
+                "http": self.http_error_count,
+                "network": self.network_failure_count,
+                "console": self.console_error_count,
+                "page": self.page_error_count,
+            },
+            "stages": stages,
+        }
+        path.write_text(
+            json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+
     @log_function_call
     async def take_screenshot_of_results(
         self,
@@ -463,6 +617,13 @@ class InstagramSearchPage:
                     event_name="screenshot_failed_no_posts",
                 )
                 raise ScreenshotTargetMissingError("포스트를 찾지 못했습니다.")
+
+            requested_post_ids = highlighted_post_ids or set()
+            diagnostic_stages = [
+                await self._safe_collect_capture_diagnostics(
+                    "initial", requested_post_ids
+                )
+            ]
 
             logger.debug(
                 f"상위 {len(top_10_posts)}개 포스트 발견",
@@ -505,6 +666,11 @@ class InstagramSearchPage:
                 keyword=keyword,
                 **media_status,
                 event_name="media_loaded",
+            )
+            diagnostic_stages.append(
+                await self._safe_collect_capture_diagnostics(
+                    "after_media", requested_post_ids
+                )
             )
 
             # 최종 안정화 대기
@@ -569,6 +735,12 @@ class InstagramSearchPage:
                 )
                 tracker.checkpoint("viewport_adjusted")
 
+            diagnostic_stages.append(
+                await self._safe_collect_capture_diagnostics(
+                    "after_viewport", requested_post_ids
+                )
+            )
+
             output_dir.mkdir(parents=True, exist_ok=True)
             file_name = f"{index}_{keyword.replace(' ', '_')}.png"
             screenshot_path = output_dir / file_name
@@ -582,6 +754,7 @@ class InstagramSearchPage:
 
             # 스크롤, 미디어 로딩, viewport 변경 중 교체된 카드에도 스크린샷
             # 직전에 강조를 다시 적용합니다.
+            highlighted_count = 0
             if highlighted_post_ids:
                 highlighted_count = await self.highlight_posts_by_ids(
                     highlighted_post_ids
@@ -594,8 +767,66 @@ class InstagramSearchPage:
                     event_name="highlight_reapplied",
                 )
 
+            after_highlight = await self._safe_collect_capture_diagnostics(
+                "after_highlight", requested_post_ids
+            )
+            diagnostic_stages.append(after_highlight)
+
+            highlighted_ids = {
+                str(post["post_id"])
+                for post in after_highlight.get("posts", [])
+                if isinstance(post, dict)
+                and post.get("post_id")
+                and isinstance(post.get("highlight"), dict)
+                and post["highlight"].get("present")
+            }
+            missing_highlight_ids = requested_post_ids - highlighted_ids
+            if missing_highlight_ids:
+                logger.warning(
+                    "Instagram 스크린샷 직전 강조 누락 감지",
+                    keyword=keyword,
+                    requested_post_ids=sorted(requested_post_ids),
+                    highlighted_post_ids=sorted(highlighted_ids),
+                    missing_post_ids=sorted(missing_highlight_ids),
+                    event_name="instagram_highlight_missing_before_capture",
+                )
+
             await self.page.screenshot(path=screenshot_path, clip=clip)
             tracker.checkpoint("screenshot_captured")
+            diagnostic_stages.append(
+                await self._safe_collect_capture_diagnostics(
+                    "after_screenshot", requested_post_ids
+                )
+            )
+
+            diagnostic_path = output_dir / (
+                f"{index}_{keyword.replace(' ', '_')}_instagram_diagnostic.json"
+            )
+            try:
+                self._save_capture_diagnostics(
+                    diagnostic_path,
+                    keyword=keyword,
+                    requested_post_ids=requested_post_ids,
+                    highlighted_count=highlighted_count,
+                    media_status=media_status,
+                    boxes=boxes,
+                    clip=clip,
+                    stages=diagnostic_stages,
+                )
+                logger.info(
+                    "Instagram 캡처 진단 파일 저장 완료",
+                    keyword=keyword,
+                    diagnostic_path=str(diagnostic_path),
+                    event_name="instagram_capture_diagnostics_saved",
+                )
+            except (OSError, TypeError) as error:
+                logger.warning(
+                    "Instagram 캡처 진단 파일 저장 실패",
+                    keyword=keyword,
+                    diagnostic_path=str(diagnostic_path),
+                    error=str(error),
+                    event_name="instagram_capture_diagnostics_save_failed",
+                )
 
             # viewport 원상복구
             if original_viewport:
