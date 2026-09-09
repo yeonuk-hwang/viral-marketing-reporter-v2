@@ -138,18 +138,6 @@ class NaverIntegratedSearchPage:
         )
         card = await link.evaluate_handle(
             """anchor => {
-                // 최신 통합검색 UGC 결과는 게시물 본문에 명시적인 표식을
-                // 제공합니다. 작성자·댓글 링크가 함께 있어도 하나의 게시물인
-                // 이 컨테이너를 크기 기반 추정보다 우선합니다.
-                const ugcItem = anchor.closest('[data-template-id="ugcItem"]');
-                if (ugcItem) {
-                    const card = ugcItem.closest(
-                        '[class*="single-intention-item-list"]'
-                    ) || ugcItem;
-                    card.dataset.viralReporterMatch = 'true';
-                    return card;
-                }
-
                 let element = anchor;
                 let fallback = anchor;
                 while (element && element.id !== 'main_pack') {
