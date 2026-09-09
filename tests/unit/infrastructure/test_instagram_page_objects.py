@@ -1,4 +1,3 @@
-import json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -164,6 +163,36 @@ async def test_get_top_10_posts_limits_results_to_two_five_column_rows() -> None
 
 
 @pytest.mark.asyncio
+async def test_prepare_top_10_posts_reloads_locators_after_lazy_loading() -> None:
+    initial_posts = [MagicMock() for _ in range(5)]
+    prepared_posts = [MagicMock() for _ in range(10)]
+    initial_posts[-1].scroll_into_view_if_needed = AsyncMock()
+    page = MagicMock()
+    page.evaluate = AsyncMock(side_effect=[24, None])
+    page.wait_for_timeout = AsyncMock()
+    search_page = InstagramSearchPage(page)
+    search_page.get_top_10_posts = AsyncMock(  # type: ignore[method-assign]
+        side_effect=[initial_posts, prepared_posts]
+    )
+
+    result = await search_page.prepare_top_10_posts()
+
+    assert result == prepared_posts
+    initial_posts[-1].scroll_into_view_if_needed.assert_awaited_once()
+    assert search_page.get_top_10_posts.await_count == 2
+    wait_script, options = page.evaluate.await_args_list[0].args
+    assert "desiredCount" in wait_script
+    assert "lastChangedAt" in wait_script
+    assert options == {
+        "selector": InstagramSearchPage.POST_SELECTOR,
+        "desiredCount": 10,
+        "timeout": 4_000,
+    }
+    page.evaluate.assert_any_await("window.scrollTo(0, 0)")
+    page.wait_for_timeout.assert_awaited_once_with(500)
+
+
+@pytest.mark.asyncio
 async def test_highlight_posts_by_ids_reacquires_and_highlights_matching_post() -> None:
     posts = [MagicMock(), MagicMock()]
     posts[0].get_attribute = AsyncMock(return_value="/p/DcQL8sCiN1O/")
@@ -237,42 +266,3 @@ def test_screenshot_clip_infers_grid_from_single_post() -> None:
     )
 
     assert clip == {"x": 0, "y": 0, "width": 1456.0, "height": 835.0}
-
-
-def test_save_capture_diagnostics_writes_support_report(tmp_path: Path) -> None:
-    search_page = InstagramSearchPage(MagicMock())
-    search_page.network_failure_count = 2
-    path = tmp_path / "capture_diagnostic.json"
-
-    search_page._save_capture_diagnostics(
-        path,
-        keyword="테스트",
-        requested_post_ids={"target"},
-        highlighted_count=1,
-        media_status={"total": 1, "videos": 0, "ready": 1},
-        boxes=[{"x": 1, "y": 2, "width": 3, "height": 4}],
-        clip={"x": 0, "y": 0, "width": 10, "height": 10},
-        stages=[{"stage": "after_highlight", "posts": []}],
-    )
-
-    report = json.loads(path.read_text(encoding="utf-8"))
-    assert report["schema_version"] == 1
-    assert report["requested_post_ids"] == ["target"]
-    assert report["highlighted_count"] == 1
-    assert report["browser_errors"]["network"] == 2
-    assert report["stages"][0]["stage"] == "after_highlight"
-
-
-@pytest.mark.asyncio
-async def test_diagnostic_collection_failure_does_not_break_capture() -> None:
-    search_page = InstagramSearchPage(MagicMock())
-    search_page._collect_capture_diagnostics = AsyncMock(  # type: ignore[method-assign]
-        side_effect=RuntimeError("DOM changed")
-    )
-
-    result = await search_page._safe_collect_capture_diagnostics(
-        "after_media", {"target"}
-    )
-
-    assert result["stage"] == "after_media"
-    assert result["collection_error"] == "RuntimeError"

@@ -123,7 +123,7 @@ class PlaywrightInstagramService(SearchPlatformService):
                         ),
                     )
 
-                top_10_posts = await search_page.get_top_10_posts()
+                top_10_posts = await search_page.prepare_top_10_posts()
                 tracker.checkpoint("top_10_posts_retrieved")
                 logger.debug(
                     f"상위 포스트 {len(top_10_posts)}개 발견",

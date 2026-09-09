@@ -85,7 +85,7 @@ async def test_sparse_results_without_matches_return_no_screenshot(
     search_page = MagicMock()
     search_page.goto = AsyncMock()
     search_page.is_result_empty = AsyncMock(return_value=False)
-    search_page.get_top_10_posts = AsyncMock(return_value=result_posts)
+    search_page.prepare_top_10_posts = AsyncMock(return_value=result_posts)
 
     with patch(
         "viral_marketing_reporter.infrastructure.platforms.instagram.service.InstagramSearchPage",
@@ -118,7 +118,7 @@ async def test_matching_post_is_highlighted_only_during_screenshot(
     search_page = MagicMock()
     search_page.goto = AsyncMock()
     search_page.is_result_empty = AsyncMock(return_value=False)
-    search_page.get_top_10_posts = AsyncMock(return_value=[result_post])
+    search_page.prepare_top_10_posts = AsyncMock(return_value=[result_post])
     search_page.highlight_element = AsyncMock()
     search_page.take_screenshot_of_results = AsyncMock(
         return_value=screenshot_path
@@ -146,4 +146,50 @@ async def test_matching_post_is_highlighted_only_during_screenshot(
         "액상비타민",
         tmp_path,
         highlighted_post_ids={"DcQL8sCiN1O"},
+    )
+
+
+@pytest.mark.asyncio
+async def test_lazy_loaded_second_row_post_is_matched_and_highlighted(
+    tmp_path: Path,
+) -> None:
+    page = MagicMock()
+    page.close = AsyncMock()
+    service = PlaywrightInstagramService(page)
+    result_posts = [MagicMock() for _ in range(10)]
+    for index, post in enumerate(result_posts[:-1]):
+        post.get_attribute = AsyncMock(return_value=f"/p/unrelated-{index}/")
+    result_posts[-1].get_attribute = AsyncMock(return_value="/p/Db2D2NKBXIn/")
+    screenshot_path = tmp_path / "1_메리루스.png"
+
+    search_page = MagicMock()
+    search_page.goto = AsyncMock()
+    search_page.is_result_empty = AsyncMock(return_value=False)
+    search_page.prepare_top_10_posts = AsyncMock(return_value=result_posts)
+    search_page.take_screenshot_of_results = AsyncMock(
+        return_value=screenshot_path
+    )
+
+    with patch(
+        "viral_marketing_reporter.infrastructure.platforms.instagram.service.InstagramSearchPage",
+        return_value=search_page,
+    ):
+        result = await service.search_and_find_posts(
+            index=1,
+            keyword=Keyword(text="메리루스"),
+            posts_to_find=[
+                Post(url="https://www.instagram.com/p/Db2D2NKBXIn")
+            ],
+            output_dir=tmp_path,
+        )
+
+    assert result.found_posts == [
+        Post(url="https://www.instagram.com/p/Db2D2NKBXIn")
+    ]
+    search_page.prepare_top_10_posts.assert_awaited_once()
+    search_page.take_screenshot_of_results.assert_awaited_once_with(
+        1,
+        "메리루스",
+        tmp_path,
+        highlighted_post_ids={"Db2D2NKBXIn"},
     )
