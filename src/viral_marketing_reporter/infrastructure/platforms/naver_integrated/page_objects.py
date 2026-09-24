@@ -37,7 +37,7 @@ class NaverIntegratedSearchPage:
         ).element_handles()
 
     async def is_primary_result_link(self, link: ElementHandle) -> bool:
-        """연관·시리즈·클러스터 링크가 아닌 실제 노출 링크인지 확인합니다."""
+        """AI 브리핑·연관 묶음이 아닌 실제 통합검색 노출 링크인지 확인합니다."""
         return await link.evaluate(
             """anchor => {
                 const heatmapTarget = (
@@ -47,8 +47,24 @@ class NaverIntegratedSearchPage:
                     heatmapTarget
                 )) return false;
 
+                // AI 브리핑의 출처 링크는 일반 통합검색 결과 노출로 집계하지
+                // 않습니다. fds-aib-*는 현재 레이아웃의 의미 클래스이며,
+                // 섹션 제목 검사는 클래스가 바뀌는 경우를 위한 보조 기준입니다.
+                let section = anchor.closest('.sc_new');
+                if (section) {
+                    const isAiBriefing = [...section.querySelectorAll(
+                        'h1, h2, h3, [role="heading"]'
+                    )].some(heading =>
+                        (heading.textContent || '').trim() === 'AI 브리핑'
+                    );
+                    if (isAiBriefing) return false;
+                }
+
                 let element = anchor;
                 while (element && element.id !== 'main_pack') {
+                    if ([...element.classList].some(name =>
+                        name.startsWith('fds-aib-')
+                    )) return false;
                     const marker = [
                         element.getAttribute('data-template-id') || '',
                         element.getAttribute('data-testid') || '',
@@ -138,6 +154,57 @@ class NaverIntegratedSearchPage:
         )
         card = await link.evaluate_handle(
             """anchor => {
+                const mark = element => {
+                    element.dataset.viralReporterMatch = 'true';
+                    return element;
+                };
+                // 네이버 UGC 결과의 의미 표식을 최우선으로 사용합니다. 이렇게
+                // 하면 같은 섹션의 공식 사이트나 다른 게시물이 박스에 섞이지
+                // 않고, 작성자·본문·썸네일을 포함한 게시물 한 건만 잡힙니다.
+                const ugcItem = anchor.closest('[data-template-id="ugcItem"]');
+                if (ugcItem) return mark(ugcItem);
+
+                const destinationOf = link => {
+                    try {
+                        const url = new URL(link.href);
+                        if (url.hostname === 'in.naver.com' &&
+                            new RegExp(
+                                '/contents/(?:internal/)?[0-9]+'
+                            ).test(url.pathname)) {
+                            return url.hostname + url.pathname;
+                        }
+                        if (url.hostname === 'blog.naver.com' ||
+                            url.hostname === 'm.blog.naver.com') {
+                            const parts = url.pathname.split('/').filter(Boolean);
+                            if (parts.length >= 2 && /^\\d+$/.test(parts[1])) {
+                                return 'blog.naver.com/' + parts[0] + '/' + parts[1];
+                            }
+                            return null;
+                        }
+                        if (url.hostname === 'cafe.naver.com' ||
+                            url.hostname === 'm.cafe.naver.com') {
+                            const parts = url.pathname.split('/').filter(Boolean);
+                            if (parts.length >= 2 && /^\\d+$/.test(parts[1])) {
+                                return 'cafe.naver.com/' + parts[0] + '/' + parts[1];
+                            }
+                            const articleId = url.searchParams.get('articleid');
+                            const clubId = url.searchParams.get('clubid');
+                            if (articleId) {
+                                return 'cafe.naver.com/' + (clubId || '') + '/' + articleId;
+                            }
+                            return null;
+                        }
+                        // 구형 혼합 결과에서는 공식 사이트 같은 외부 링크도
+                        // 별도 결과 경계로 취급합니다. 네이버 내부 이동·프로필
+                        // 링크는 카드 경계를 잘못 줄이지 않도록 제외합니다.
+                        if (!url.hostname.endsWith('.naver.com') &&
+                            url.hostname !== 'naver.com') {
+                            return url.hostname + url.pathname.replace(/[/]$/, '');
+                        }
+                    } catch (_) {}
+                    return null;
+                };
+
                 let element = anchor;
                 let fallback = anchor;
                 while (element && element.id !== 'main_pack') {
@@ -148,37 +215,7 @@ class NaverIntegratedSearchPage:
                         )) break;
                         const destinations = new Set(
                             [...element.querySelectorAll('a[href]')]
-                                .map(link => {
-                                    try {
-                                        const url = new URL(link.href);
-                                        if (url.hostname === 'in.naver.com' &&
-                                            new RegExp(
-                                                '/contents/(?:internal/)?[0-9]+'
-                                            ).test(url.pathname)) {
-                                            return url.hostname + url.pathname;
-                                        }
-                                        if (url.hostname === 'blog.naver.com' ||
-                                            url.hostname === 'm.blog.naver.com') {
-                                            const parts = url.pathname.split('/').filter(Boolean);
-                                            if (parts.length >= 2 && /^\\d+$/.test(parts[1])) {
-                                                return 'blog.naver.com/' + parts[0] + '/' + parts[1];
-                                            }
-                                        }
-                                        if (url.hostname === 'cafe.naver.com' ||
-                                            url.hostname === 'm.cafe.naver.com') {
-                                            const parts = url.pathname.split('/').filter(Boolean);
-                                            if (parts.length >= 2 && /^\\d+$/.test(parts[1])) {
-                                                return 'cafe.naver.com/' + parts[0] + '/' + parts[1];
-                                            }
-                                            const articleId = url.searchParams.get('articleid');
-                                            const clubId = url.searchParams.get('clubid');
-                                            if (articleId) {
-                                                return 'cafe.naver.com/' + (clubId || '') + '/' + articleId;
-                                            }
-                                        }
-                                    } catch (_) {}
-                                    return null;
-                                })
+                                .map(destinationOf)
                                 .filter(Boolean)
                         );
                         if (destinations.size > 1) break;
@@ -186,8 +223,7 @@ class NaverIntegratedSearchPage:
                     }
                     element = element.parentElement;
                 }
-                fallback.dataset.viralReporterMatch = 'true';
-                return fallback;
+                return mark(fallback);
             }"""
         )
         element = card.as_element()

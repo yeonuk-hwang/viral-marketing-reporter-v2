@@ -189,6 +189,44 @@ async def test_remove_whale_promotional_banners_uses_scoped_selectors(mocker):
     assert "type_whale_banner" in script
 
 
+async def test_primary_result_link_excludes_ai_briefing_sections(mocker):
+    from viral_marketing_reporter.infrastructure.platforms.naver_integrated.page_objects import (
+        NaverIntegratedSearchPage,
+    )
+
+    link = mocker.AsyncMock()
+    link.evaluate.return_value = False
+
+    result = await NaverIntegratedSearchPage(mocker.Mock()).is_primary_result_link(
+        link
+    )
+
+    assert result is False
+    script = link.evaluate.await_args.args[0]
+    assert "fds-aib-" in script
+    assert "AI 브리핑" in script
+
+
+async def test_highlight_prefers_one_semantic_ugc_item(mocker):
+    from viral_marketing_reporter.infrastructure.platforms.naver_integrated.page_objects import (
+        NaverIntegratedSearchPage,
+    )
+
+    page = mocker.Mock()
+    page.evaluate = mocker.AsyncMock()
+    card = mocker.Mock()
+    card.as_element.return_value = card
+    link = mocker.AsyncMock()
+    link.evaluate_handle.return_value = card
+
+    result = await NaverIntegratedSearchPage(page).highlight_result_for_link(link)
+
+    assert result is card
+    script = link.evaluate_handle.await_args.args[0]
+    assert 'closest(\'[data-template-id="ugcItem"]\')' in script
+    assert "!url.hostname.endsWith('.naver.com')" in script
+
+
 async def test_direct_matches_keeps_every_visible_occurrence(mocker):
     service = PlaywrightNaverIntegratedSearchService(mocker.Mock())
     url = "https://blog.naver.com/choco520/224364092012"
