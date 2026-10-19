@@ -123,19 +123,16 @@ class InstagramSearchPage:
     async def goto(self, keyword: str) -> None:
         """주어진 키워드로 검색 결과 페이지로 이동합니다."""
         normalized_keyword = keyword.strip()
-        hashtag_keyword = (
-            normalized_keyword
-            if normalized_keyword.startswith("#")
-            else f"#{normalized_keyword}"
-        )
-        encoded_keyword = quote(hashtag_keyword)
+        plain_keyword = normalized_keyword.removeprefix("#").strip()
+        encoded_keyword = quote(plain_keyword)
         search_url = f"https://www.instagram.com/explore/search/keyword/?q={encoded_keyword}"
 
         logger.info(
             "Instagram 검색 페이지로 이동",
             keyword=keyword,
-            search_query=hashtag_keyword,
+            search_query=plain_keyword,
             url=search_url,
+            search_mode="plain_keyword",
             event_name="page_navigate",
         )
 
@@ -217,12 +214,13 @@ class InstagramSearchPage:
         """빈 결과와 구분해야 하는 로그인 및 제한 페이지를 감지합니다."""
         url = str(diagnostics["url"]).lower()
         body_text = str(diagnostics["body_excerpt"]).lower()
+        title = str(diagnostics["title"]).lower()
 
         if "/accounts/login" in url:
             raise InstagramPageStateError("Instagram 로그인 페이지로 이동했습니다.")
         if "/challenge" in url or "/checkpoint" in url:
             raise InstagramPageStateError("Instagram 보안 확인 페이지가 감지됐습니다.")
-        if any(
+        if "page couldn't load" in title or any(
             text in body_text
             for text in (
                 "try again later",

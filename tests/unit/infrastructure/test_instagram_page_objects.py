@@ -41,7 +41,7 @@ async def test_goto_retries_then_accepts_empty_result_without_text() -> None:
 
     page.goto.assert_awaited_once()
     assert page.goto.await_args.args[0].endswith(
-        "?q=%23%ED%9D%AC%EC%86%8C%20%EA%B2%80%EC%83%89%EC%96%B4"
+        "?q=%ED%9D%AC%EC%86%8C%20%EA%B2%80%EC%83%89%EC%96%B4"
     )
     page.reload.assert_awaited_once()
     assert post_locator.first.wait_for.await_count == 2
@@ -49,15 +49,29 @@ async def test_goto_retries_then_accepts_empty_result_without_text() -> None:
 
 
 @pytest.mark.asyncio
-async def test_goto_does_not_duplicate_existing_hashtag() -> None:
+async def test_goto_removes_existing_hashtag_for_plain_keyword_search() -> None:
     page, _ = _page_without_search_posts()
     search_page = InstagramSearchPage(page)
 
     await search_page.goto("#코스트코추천템")
 
     assert page.goto.await_args.args[0].endswith(
-        "?q=%23%EC%BD%94%EC%8A%A4%ED%8A%B8%EC%BD%94%EC%B6%94%EC%B2%9C%ED%85%9C"
+        "?q=%EC%BD%94%EC%8A%A4%ED%8A%B8%EC%BD%94%EC%B6%94%EC%B2%9C%ED%85%9C"
     )
+
+
+def test_blocking_state_recognizes_instagram_load_error_title() -> None:
+    search_page = InstagramSearchPage(MagicMock())
+
+    with pytest.raises(InstagramPageStateError, match="검색 제한 또는 오류"):
+        search_page._raise_for_blocking_state(
+            "팸퍼스",
+            {
+                "url": "https://www.instagram.com/explore/search/keyword/",
+                "title": "Page couldn't load • Instagram",
+                "body_excerpt": "Reload page",
+            },
+        )
 
 
 @pytest.mark.asyncio
